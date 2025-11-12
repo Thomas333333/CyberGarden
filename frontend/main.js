@@ -235,15 +235,75 @@ const particleMaterial = new THREE.PointsMaterial({
 const particles = new THREE.Points(particleGeometry, particleMaterial);
 scene.add(particles);
 
-// --- 日式情绪颜色映射（低饱和度） ---
+// --- 情绪颜色映射（高对比度） ---
 const emotionColors = {
-    'happy': desaturateColor(0xffd89b, 0.4).getHex(),      // 柔和的黄色
-    'sad': desaturateColor(0xa8c8ec, 0.4).getHex(),        // 柔和的蓝色
-    'angry': desaturateColor(0xff9a9e, 0.4).getHex(),     // 柔和的红色
-    'surprise': desaturateColor(0xffb3ba, 0.4).getHex(),  // 柔和的粉红色
-    'fear': desaturateColor(0xc7a8d8, 0.4).getHex(),      // 柔和的紫色
-    'disgust': desaturateColor(0xbaffc9, 0.4).getHex(),   // 柔和的绿色
-    'neutral': desaturateColor(0xf5f5dc, 0.3).getHex()   // 米色
+    happy: new THREE.Color(0xffc107).getHex(),       // 明亮金黄
+    sad: new THREE.Color(0x2196f3).getHex(),         // 深蓝
+    angry: new THREE.Color(0xf44336).getHex(),       // 鲜红
+    surprise: new THREE.Color(0xff80ab).getHex(),    // 艳粉
+    fear: new THREE.Color(0x9575cd).getHex(),        // 深紫
+    disgust: new THREE.Color(0x4caf50).getHex(),     // 亮绿
+    neutral: new THREE.Color(0xffffff).getHex()      // 高亮白
+};
+
+// --- 情绪特效配置（放大情绪差异） ---
+const emotionProfiles = {
+    happy: {
+        scaleBoost: 0.28,
+        rotationOffset: 0.18,
+        particleSpeed: 0.0009,
+        lightBoost: 0.25,
+        petalFlutter: 0.18,
+        description: '→ 花朵绽放放大，温暖的光线增强'
+    },
+    sad: {
+        scaleBoost: -0.18,
+        rotationOffset: -0.08,
+        particleSpeed: 0.00025,
+        lightBoost: -0.12,
+        petalFlutter: -0.08,
+        description: '→ 花朵收拢变小，光线转为低沉'
+    },
+    angry: {
+        scaleBoost: 0.32,
+        rotationOffset: 0.25,
+        particleSpeed: 0.0012,
+        lightBoost: 0.32,
+        petalFlutter: 0.22,
+        description: '→ 花朵急速扩张，光线跳跃炽热'
+    },
+    surprise: {
+        scaleBoost: 0.22,
+        rotationOffset: 0.35,
+        particleSpeed: 0.001,
+        lightBoost: 0.28,
+        petalFlutter: 0.26,
+        description: '→ 花朵突然张开，粒子快速旋舞'
+    },
+    fear: {
+        scaleBoost: -0.1,
+        rotationOffset: -0.22,
+        particleSpeed: 0.00035,
+        lightBoost: -0.08,
+        petalFlutter: 0.04,
+        description: '→ 花朵略微收紧，光线分散变冷'
+    },
+    disgust: {
+        scaleBoost: -0.14,
+        rotationOffset: 0.12,
+        particleSpeed: 0.0004,
+        lightBoost: -0.05,
+        petalFlutter: -0.02,
+        description: '→ 花朵倾斜避让，光线稍显暗淡'
+    },
+    neutral: {
+        scaleBoost: 0.0,
+        rotationOffset: 0.0,
+        particleSpeed: 0.00045,
+        lightBoost: 0.0,
+        petalFlutter: 0.0,
+        description: '→ 花朵保持平静的呼吸节奏'
+    }
 };
 
 // --- Post-processing 设置 ---
@@ -281,6 +341,19 @@ let currentEmotion = 'neutral';
 let targetColor = new THREE.Color(emotionColors['neutral']);
 let currentColor = new THREE.Color(emotionColors['neutral']);
 
+let targetEmotionScale = 0.0;
+let currentEmotionScale = 0.0;
+let targetEmotionRotation = 0.0;
+let currentEmotionRotation = 0.0;
+let targetParticleSpeed = emotionProfiles['neutral'].particleSpeed;
+let currentParticleSpeed = emotionProfiles['neutral'].particleSpeed;
+let targetLightBoost = 0.0;
+let currentLightBoost = 0.0;
+let targetPetalFlutter = 0.0;
+let currentPetalFlutter = 0.0;
+let baseLightLeft = 0.35;
+let baseLightRight = 0.35;
+
 // --- map 辅助函数 ---
 function map(value, inMin, inMax, outMin, outMax) {
     return ((value - inMin) * (outMax - outMin)) / (inMax - inMin) + outMin;
@@ -291,6 +364,7 @@ const ws = new WebSocket('ws://localhost:8000/ws/data');
 const statusElement = document.getElementById('status');
 const emotionDisplay = document.getElementById('emotion-display');
 const emotionEffect = document.getElementById('emotion-effect');
+const emotionConfidence = document.getElementById('emotion-confidence');
 const loudnessValue = document.getElementById('loudness-value');
 const loudnessBar = document.getElementById('loudness-bar');
 const loudnessEffect = document.getElementById('loudness-effect');
@@ -320,7 +394,16 @@ ws.onclose = () => {
 ws.onmessage = (event) => {
     try {
         const data = JSON.parse(event.data);
-        currentEmotion = data.emotion;
+        const emotionKey = typeof data.emotion === 'string' ? data.emotion : 'neutral';
+        const rawConfidence = typeof data.raw_confidence === 'number' ? data.raw_confidence : 0;
+        const faceDetected = data.stable_face_detected ?? data.raw_face_detected ?? false;
+        currentEmotion = emotionKey;
+        const profile = emotionProfiles[emotionKey] || emotionProfiles['neutral'];
+        targetEmotionScale = profile.scaleBoost;
+        targetEmotionRotation = profile.rotationOffset;
+        targetParticleSpeed = profile.particleSpeed;
+        targetLightBoost = profile.lightBoost;
+        targetPetalFlutter = profile.petalFlutter;
         
         // 更新状态显示
         const emotionNames = {
@@ -332,7 +415,8 @@ ws.onmessage = (event) => {
             'disgust': '🤢 厌恶',
             'neutral': '😐 中性'
         };
-        statusElement.textContent = `✓ ${emotionNames[data.emotion] || '😐 中性'}`;
+        statusElement.textContent = `✓ ${emotionNames[emotionKey] || '😐 中性'}`;
+        statusElement.dataset.faceDetected = faceDetected ? 'true' : 'false';
         
         // --- 更新表情特征显示 ---
         const emotionDisplayNames = {
@@ -344,11 +428,15 @@ ws.onmessage = (event) => {
             'disgust': '🤢 厌恶',
             'neutral': '😐 中性'
         };
-        emotionDisplay.textContent = emotionDisplayNames[data.emotion] || '😐 中性';
-        emotionEffect.textContent = `→ 花朵颜色变为柔和的${emotionDisplayNames[data.emotion]?.split(' ')[1] || '中性'}色调`;
+        emotionDisplay.textContent = emotionDisplayNames[emotionKey] || '😐 中性';
+        emotionEffect.textContent = `${profile.description}（${faceDetected ? '已检测到人脸' : '未检测到人脸'}）`;
+        if (emotionConfidence) {
+            const confPercent = Math.round(rawConfidence * 100);
+            emotionConfidence.textContent = `原始置信度: ${confPercent}%`;
+        }
         
         // 获取情绪颜色（低饱和度）
-        const emotionColorHex = emotionColors[data.emotion] || emotionColors['neutral'];
+        const emotionColorHex = emotionColors[emotionKey] || emotionColors['neutral'];
         targetColor.setHex(emotionColorHex);
         
         // --- 更新响度显示 ---
@@ -389,9 +477,10 @@ ws.onmessage = (event) => {
         const pitchNormalized = (data.pitch - 50) / 350;
         const pitchPercent = Math.round(pitchNormalized * 100);
         pitchBar.style.width = `${pitchPercent}%`;
+        const clampedPitch = Math.max(50, Math.min(400, data.pitch));
         
         // 映射音高到旋转
-        targetRotation = map(data.pitch, 50, 400, -0.25, 0.25);
+        targetRotation = map(clampedPitch, 50, 400, -0.25, 0.25);
         const rotationDeg = Math.round(targetRotation * 180 / Math.PI);
         
         if (pitch < 150) {
@@ -405,8 +494,8 @@ ws.onmessage = (event) => {
         }
         
         // 根据音高影响点光源
-        pointLight1.intensity = 0.3 + pitchNormalized * 0.3;
-        pointLight2.intensity = 0.3 + (1 - pitchNormalized) * 0.3;
+        baseLightLeft = 0.3 + pitchNormalized * 0.3;
+        baseLightRight = 0.3 + (1 - pitchNormalized) * 0.3;
         
     } catch (error) {
         console.error('Error parsing WebSocket data:', error);
@@ -421,6 +510,11 @@ function animate() {
     
     // 平滑颜色过渡
     currentColor.lerp(targetColor, 0.04);
+    currentEmotionScale = THREE.MathUtils.lerp(currentEmotionScale, targetEmotionScale, 0.06);
+    currentEmotionRotation = THREE.MathUtils.lerp(currentEmotionRotation, targetEmotionRotation, 0.06);
+    currentParticleSpeed = THREE.MathUtils.lerp(currentParticleSpeed, targetParticleSpeed, 0.05);
+    currentLightBoost = THREE.MathUtils.lerp(currentLightBoost, targetLightBoost, 0.08);
+    currentPetalFlutter = THREE.MathUtils.lerp(currentPetalFlutter, targetPetalFlutter, 0.05);
     
     // 更新主花朵颜色（平滑过渡）
     mainFlower.petalMeshes.forEach(petal => {
@@ -430,45 +524,51 @@ function animate() {
     });
     
     // 更新主花朵
-    const targetScaleVec = new THREE.Vector3(targetScale, targetScale, targetScale);
+    const scaledValue = targetScale * (1 + currentEmotionScale);
+    const targetScaleVec = new THREE.Vector3(scaledValue, scaledValue, scaledValue);
     mainFlower.group.scale.lerp(targetScaleVec, 0.06);
     mainFlower.group.rotation.z = THREE.MathUtils.lerp(
         mainFlower.group.rotation.z,
-        targetRotation,
+        targetRotation + currentEmotionRotation,
         0.06
     );
     
     // 花瓣自然摆动
-    mainFlower.petals.rotation.y = Math.sin(time * 1.2) * 0.06;
-    mainFlower.petals.rotation.x = Math.cos(time * 1.0) * 0.04;
+    const flutter = 0.06 + currentPetalFlutter;
+    mainFlower.petals.rotation.y = Math.sin(time * (1.2 + currentPetalFlutter)) * flutter;
+    mainFlower.petals.rotation.x = Math.cos(time * (1.0 + currentPetalFlutter * 0.5)) * (0.04 + currentPetalFlutter * 0.6);
     
     // 花心脉动
-    const pulse = Math.sin(time * 1.8) * 0.08 + 1;
+    const pulse = Math.sin(time * (1.8 + currentPetalFlutter)) * (0.08 + currentPetalFlutter * 0.4) + 1;
     mainFlower.center.scale.set(pulse, pulse, pulse);
     
     // 更新其他花朵
     flowers.forEach((flower, index) => {
         if (flower !== mainFlower) {
+            const flowerScale = flower.targetScale * (1 + currentEmotionScale * 0.5);
             flower.group.scale.lerp(
-                new THREE.Vector3(flower.targetScale, flower.targetScale, flower.targetScale),
+                new THREE.Vector3(flowerScale, flowerScale, flowerScale),
                 0.03
             );
-            flower.group.rotation.y = Math.sin(time * 1.0 + index * 0.5) * 0.06;
-            flower.petals.rotation.y = Math.sin(time * 1.2 + index * 0.7) * 0.08;
+            flower.group.rotation.y = Math.sin(time * 1.0 + index * 0.5) * (0.06 + currentPetalFlutter * 0.4);
+            flower.petals.rotation.y = Math.sin(time * (1.2 + currentPetalFlutter) + index * 0.7) * (0.08 + currentPetalFlutter * 0.3);
             
-            const pulse = Math.sin(time * 1.8 + index) * 0.06 + 1;
-            flower.center.scale.set(pulse, pulse, pulse);
+            const pulseOther = Math.sin(time * (1.8 + currentPetalFlutter * 0.6) + index) * (0.06 + currentPetalFlutter * 0.2) + 1;
+            flower.center.scale.set(pulseOther, pulseOther, pulseOther);
         }
     });
     
     // 旋转粒子
-    particles.rotation.y += 0.0003;
+    particles.rotation.y += currentParticleSpeed;
+    particles.rotation.x += currentParticleSpeed * 0.4;
     
     // 旋转点光源位置
     pointLight1.position.x = Math.cos(time * 0.25) * 6;
     pointLight1.position.z = Math.sin(time * 0.25) * 6;
     pointLight2.position.x = Math.cos(time * 0.25 + Math.PI) * 6;
     pointLight2.position.z = Math.sin(time * 0.25 + Math.PI) * 6;
+    pointLight1.intensity = THREE.MathUtils.lerp(pointLight1.intensity, baseLightLeft + currentLightBoost, 0.08);
+    pointLight2.intensity = THREE.MathUtils.lerp(pointLight2.intensity, baseLightRight + currentLightBoost * 0.8, 0.08);
     
     // 轻微旋转相机
     camera.position.x = Math.sin(time * 0.06) * 1.2;
@@ -486,6 +586,45 @@ window.addEventListener('resize', () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
     composer.setSize(window.innerWidth, window.innerHeight);
 });
+
+const localMicBar = document.getElementById('local-mic-bar');
+const localMicValue = document.getElementById('local-mic-value');
+const localMicEffect = document.getElementById('local-mic-effect');
+async function initLocalMicDebug() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        if (localMicEffect) localMicEffect.textContent = '浏览器不支持 getUserMedia';
+        return;
+    }
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioContext.createMediaStreamSource(stream);
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 512;
+        const data = new Uint8Array(analyser.frequencyBinCount);
+        source.connect(analyser);
+
+        function update() {
+            analyser.getByteTimeDomainData(data);
+            let sum = 0;
+            for (let i = 0; i < data.length; i++) {
+                const v = (data[i] - 128) / 128;
+                sum += v * v;
+            }
+            const rms = Math.sqrt(sum / data.length);
+            const percent = Math.min(100, Math.max(0, Math.round(rms * 140)));
+            if (localMicBar) localMicBar.style.width = percent + '%';
+            if (localMicValue) localMicValue.textContent = percent + '%';
+            if (localMicEffect) localMicEffect.textContent = percent > 5 ? '→ 麦克风有输入' : '→ 请对着麦克风说话或检查权限';
+            requestAnimationFrame(update);
+        }
+        update();
+    } catch (e) {
+        console.warn('Local mic init failed:', e);
+        if (localMicEffect) localMicEffect.textContent = '无法获取麦克风，请检查浏览器权限设置';
+    }
+}
+initLocalMicDebug();
 
 // 启动动画循环
 animate();

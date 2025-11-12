@@ -4,8 +4,10 @@ import numpy as np
 import librosa
 import pyaudio
 import json
+import time
 from collections import deque
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 from deepface import DeepFace
 import uvicorn
 
@@ -47,13 +49,18 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # --- 情绪稳定性处理 ---
 class EmotionStabilizer:
-    def __init__(self, window_size=10, threshold=0.6):
+    def __init__(self, window_size=10, threshold=0.6, min_confidence=0.35):
         self.emotion_history = deque(maxlen=window_size)
         self.current_emotion = "neutral"
         self.confidence_threshold = threshold
+        self.min_confidence = min_confidence
     
     def update(self, emotion, confidence=None):
         """更新情绪，返回稳定后的情绪"""
+        if confidence is not None and confidence < self.min_confidence:
+            # 低置信度时跳过更新，避免频繁跳变
+            return self.current_emotion
+
         self.emotion_history.append(emotion)
         
         # 统计最近的情绪分布
@@ -72,7 +79,19 @@ class EmotionStabilizer:
         
         return self.current_emotion
 
-emotion_stabilizer = EmotionStabilizer(window_size=15, threshold=0.5)
+emotion_stabilizer = EmotionStabilizer(window_size=12, threshold=0.5, min_confidence=0.4)
+
+# --- TEST ONLY: 全局共享帧和情绪数据（用于调试摄像头叠加显示） ---
+latest_frame = None
+latest_emotion_snapshot = {
+    "raw_emotion": "neutral",
+    "raw_confidence": 0.0,
+    "raw_face_detected": False,
+    "stable_face_detected": False,
+    "loudness": 0.0,
+    "pitch": 220.0,
+}
+_face_presence_score = 0.0
 
 # --- 音频和视频分析 ---
 async def analyze_media():
@@ -107,6 +126,8 @@ async def analyze_media():
     loudness_history = deque(maxlen=5)
     pitch_history = deque(maxlen=5)
     
+    global latest_frame, latest_emotion_snapshot, _face_presence_score
+
     try:
         frame_count = 0
         while True:
@@ -117,17 +138,23 @@ async def analyze_media():
                 continue
             
             frame_count += 1
+            analysis_frame = frame.copy()
             
             # 2. 读取音频块
             audio_data = stream.read(CHUNK, exception_on_overflow=False)
             audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
             
             # 3. 分析情绪（降低检测频率）
-            emotion = "neutral"
+            raw_emotion = latest_emotion_snapshot.get("raw_emotion", "neutral")
+            confidence = latest_emotion_snapshot.get("confidence", 0.0)
+            raw_confidence = latest_emotion_snapshot.get("raw_confidence", 0.0)
+            raw_face_detected = latest_emotion_snapshot.get("raw_face_detected", False)
+            stable_face_detected = latest_emotion_snapshot.get("stable_face_detected", False)
+            detection_updated = False
             if frame_count % 3 == 0:  # 每3帧检测一次
                 try:
                     # 缩小图像以提高速度
-                    small_frame = cv2.resize(frame, (320, 240))
+                    small_frame = cv2.resize(analysis_frame, (320, 240))
                     rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
                     
                     result = DeepFace.analyze(
@@ -143,14 +170,25 @@ async def analyze_media():
                     # 获取情绪和置信度
                     emotion_scores = result.get('emotion', {})
                     if emotion_scores:
-                        emotion = max(emotion_scores.items(), key=lambda x: x[1])[0]
-                        confidence = emotion_scores.get(emotion, 0) / 100.0
+                        raw_emotion, raw_confidence_score = max(emotion_scores.items(), key=lambda x: x[1])
+                        raw_confidence = float(raw_confidence_score) / 100.0
                     else:
-                        emotion = result.get('dominant_emotion', 'neutral')
-                        confidence = 0.5
+                        raw_emotion = result.get('dominant_emotion', 'neutral')
+                        raw_confidence = float(result.get('face_confidence', 0.0))
+                        if raw_confidence > 1:
+                            raw_confidence /= 100.0
                     
-                    # 使用稳定器平滑情绪
-                    emotion = emotion_stabilizer.update(emotion, confidence)
+                    face_conf = float(result.get('face_confidence', 0.0))
+                    if face_conf > 1:
+                        face_conf = face_conf / 100.0
+                    raw_face_detected = (face_conf >= 0.4) or (raw_confidence >= 0.4)
+                    detection_updated = True
+
+                    if raw_face_detected:
+                        emotion_stabilizer.update(raw_emotion, raw_confidence)
+                        confidence = float(max(raw_confidence, face_conf))
+                    else:
+                        confidence = 0.0
                     
                 except Exception as e:
                     # 只在出错时打印，避免刷屏
@@ -189,9 +227,11 @@ async def analyze_media():
             
             # 6. 格式化数据为 JSON
             data = {
-                "emotion": emotion,
-                "loudness": loudness,
-                "pitch": pitch
+                "emotion": raw_emotion,
+                "raw_emotion": raw_emotion,
+                "raw_confidence": float(raw_confidence),
+                "loudness": float(loudness),
+                "pitch": float(pitch)
             }
             json_data = json.dumps(data)
             
@@ -199,6 +239,26 @@ async def analyze_media():
             if manager.active_connections:
                 await manager.broadcast(json_data)
             
+            # --- TEST ONLY: 保存最新帧与情绪快照用于视频调试 ---
+            latest_frame = frame.copy()
+            if detection_updated:
+                target = 1.0 if raw_face_detected else 0.0
+                _face_presence_score = (_face_presence_score * 0.65) + (target * 0.35)
+            else:
+                _face_presence_score = (_face_presence_score * 0.98)
+            _face_presence_score = max(0.0, min(1.0, _face_presence_score))
+            stable_face_detected = _face_presence_score >= 0.4
+
+            latest_emotion_snapshot = {
+                "raw_emotion": raw_emotion,
+                "raw_confidence": raw_confidence,
+                "confidence": confidence,
+                "raw_face_detected": raw_face_detected,
+                "stable_face_detected": stable_face_detected,
+                "loudness": loudness,
+                "pitch": pitch,
+            }
+
             # 8. 控制更新频率
             await asyncio.sleep(0.15)  # 降低更新频率
             
@@ -216,6 +276,65 @@ async def analyze_media():
 async def startup_event():
     # 启动后台分析任务
     asyncio.create_task(analyze_media())
+
+
+# --- TEST ONLY: 后端摄像头调试流（带情绪信息叠加） ---
+def generate_test_video_stream():
+    """MJPEG 生成器，用于测试摄像头画面与情绪识别结果"""
+    boundary = b'--frame'
+    while True:
+        if latest_frame is None:
+            time.sleep(0.05)
+            continue
+
+        frame = latest_frame.copy()
+        snapshot = latest_emotion_snapshot.copy()
+
+        overlay_lines = [
+            f"Raw Emotion: {snapshot['raw_emotion']}",
+            f"Raw Conf: {snapshot['raw_confidence']:.2f}",
+            f"Raw Face: {snapshot['raw_face_detected']}",
+            f"Stable Face: {snapshot['stable_face_detected']}",
+            f"Loudness: {snapshot['loudness']:.2f}",
+            f"Pitch: {snapshot['pitch']:.1f} Hz",
+        ]
+        y_offset = 30
+        for line in overlay_lines:
+            cv2.putText(
+                frame,
+                line,
+                (20, y_offset),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 255, 170),
+                2,
+                cv2.LINE_AA
+            )
+            y_offset += 28
+
+        success, buffer = cv2.imencode('.jpg', frame)
+        if not success:
+            time.sleep(0.05)
+            continue
+
+        frame_bytes = buffer.tobytes()
+        yield (
+            boundary + b'\r\n'
+            b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n'
+        )
+
+
+@app.get("/video")
+def video_stream_with_emotion_overlay():
+    """
+    TEST ONLY: 调试接口，返回带情绪信息叠加的摄像头视频流。
+    前端可用于快速验证情绪识别结果与画面同步情况。
+    """
+    return StreamingResponse(
+        generate_test_video_stream(),
+        media_type='multipart/x-mixed-replace; boundary=frame'
+    )
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

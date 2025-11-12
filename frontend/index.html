@@ -87,6 +87,7 @@
             <div class="info-label">🎭 表情特征</div>
             <div class="info-value" id="emotion-display">-</div>
             <div class="info-effect" id="emotion-effect">-</div>
+            <div class="info-effect" id="emotion-confidence">-</div>
         </div>
         
         <div class="info-section">
@@ -113,6 +114,20 @@
                     <div class="info-effect" id="pitch-effect">-</div>
                 </div>
             </div>
+
+            <div style="margin-top: 10px;">
+                <div class="info-label" style="font-size: 12px; opacity: 0.85;">本地麦克风（调试）</div>
+                <div style="display: flex; justify-content: space-between; margin: 4px 0 2px;">
+                    <span class="info-value" style="font-size: 12px;">输入电平</span>
+                    <span class="info-value" style="font-size: 12px;" id="local-mic-value">0%</span>
+                </div>
+                <div class="bar-container">
+                    <div class="bar-fill" id="local-mic-bar" style="width: 0%; background: linear-gradient(90deg, #8EC5FC 0%, #E0C3FC 100%);"></div>
+                </div>
+                <div class="info-effect" id="local-mic-effect">→ 用于确认浏览器已获取麦克风</div>
+            </div>
+            
+        </div>
         </div>
     </div>
     <script type="importmap">
