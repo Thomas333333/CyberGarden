@@ -158,7 +158,8 @@
     </style>
     <!-- 加载本地 TensorFlow.js 和 Pose Detection -->
     <script src="lib/tensorflow/tf.min.js"></script>
-    <script src="lib/pose-detection/pose-detection.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/hand-pose-detection"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
 </head>
 
 <body>
@@ -223,14 +224,13 @@
         <div class="info-effect" id="gesture-detail">-</div>
         <div class="info-effect" id="gesture-direction" style="margin-top: 4px;">-</div>
     </div>
-    </div>
     <script type="importmap">
     {
         "imports": {
             "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
             "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
             "@tensorflow/tfjs": "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js",
-            "@tensorflow-models/pose-detection": "https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.2.0/dist/pose-detection.min.js",
+            "@tensorflow-models/hand-pose-detection": "https://cdn.jsdelivr.net/npm/@tensorflow-models/hand-pose-detection",
             "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js",
             "postprocessing": "https://cdn.jsdelivr.net/npm/postprocessing@6.35.3/build/postprocessing.js"
         }

@@ -1235,7 +1235,7 @@ async function initPoseDetection() {
             const SEND_INTERVAL = 100; // 100ms = 10fps
 
             // 注册姿态检测回调
-            poseDetector.onPoseDetected((pose, handPos) => {
+            poseDetector.onPoseDetected((hands, handPos) => {
                 // 清除画布
                 ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
@@ -1288,44 +1288,31 @@ async function initPoseDetection() {
                 };
                 drawRegions();
 
-                // 绘制手部关键点
-                if (pose && pose.keypoints) {
-                    // 获取关键点
-                    const leftWrist = pose.keypoints.find(kp => kp.name === 'left_wrist');
-                    const rightWrist = pose.keypoints.find(kp => kp.name === 'right_wrist');
-                    const leftIndex = pose.keypoints.find(kp => kp.name === 'left_index');
-                    const rightIndex = pose.keypoints.find(kp => kp.name === 'right_index');
-                    const leftThumb = pose.keypoints.find(kp => kp.name === 'left_thumb');
-                    const rightThumb = pose.keypoints.find(kp => kp.name === 'right_thumb');
-                    const leftPinky = pose.keypoints.find(kp => kp.name === 'left_pinky');
-                    const rightPinky = pose.keypoints.find(kp => kp.name === 'right_pinky');
+                // 绘制手部关键点 (21点骨架)
+                if (hands && hands.length > 0) {
+                    hands.forEach(hand => {
+                        if (!hand.keypoints) return;
 
-                    // 过滤"幽灵"手：如果左右手腕太近，只显示置信度高的那个
-                    let showLeft = leftWrist && leftWrist.score > 0.3;
-                    let showRight = rightWrist && rightWrist.score > 0.3;
+                        const keypoints = hand.keypoints;
+                        const isRightHand = hand.handedness === 'Right';
+                        const color = isRightHand ? '#00AAFF' : '#FF5555'; // 右手蓝，左手红
 
-                    if (showLeft && showRight) {
-                        const dx = leftWrist.x - rightWrist.x;
-                        const dy = leftWrist.y - rightWrist.y;
-                        const dist = Math.sqrt(dx * dx + dy * dy);
-                        if (dist < 50) {
-                            if (leftWrist.score > rightWrist.score) {
-                                showRight = false;
-                            } else {
-                                showLeft = false;
-                            }
-                        }
-                    }
-
-                    // 绘制函数
-                    const drawHand = (wrist, index, thumb, pinky, color) => {
+                        ctx.fillStyle = color;
                         ctx.strokeStyle = color;
                         ctx.lineWidth = 2;
-                        ctx.fillStyle = color;
+
+                        // 辅助函数：绘制点
+                        const drawPoint = (p, size = 3) => {
+                            ctx.beginPath();
+                            ctx.arc(p.x, p.y, size, 0, 2 * Math.PI);
+                            ctx.fill();
+                        };
 
                         // 辅助函数：绘制线段
-                        const drawLine = (p1, p2) => {
-                            if (p1 && p2 && p1.score > 0.3 && p2.score > 0.3) {
+                        const drawLine = (idx1, idx2) => {
+                            const p1 = keypoints[idx1];
+                            const p2 = keypoints[idx2];
+                            if (p1 && p2) {
                                 ctx.beginPath();
                                 ctx.moveTo(p1.x, p1.y);
                                 ctx.lineTo(p2.x, p2.y);
@@ -1333,41 +1320,48 @@ async function initPoseDetection() {
                             }
                         };
 
-                        // 辅助函数：绘制点
-                        const drawPoint = (p, size = 4) => {
-                            if (p && p.score > 0.3) {
-                                ctx.beginPath();
-                                ctx.arc(p.x, p.y, size, 0, 2 * Math.PI);
-                                ctx.fill();
-                            }
-                        };
+                        // 1. 绘制所有关键点
+                        keypoints.forEach(kp => drawPoint(kp));
 
-                        // 1. 绘制骨架连接
-                        // 手腕到手指
-                        drawLine(wrist, thumb);
-                        drawLine(wrist, index);
-                        drawLine(wrist, pinky);
+                        // 2. 绘制连接线
+                        // 拇指 (0-1-2-3-4)
+                        drawLine(0, 1); drawLine(1, 2); drawLine(2, 3); drawLine(3, 4);
 
-                        // 手指之间（模拟手掌边缘）
-                        drawLine(thumb, index);
-                        drawLine(index, pinky);
-                        drawLine(pinky, wrist); // 闭合手掌
+                        // 食指 (0-5-6-7-8)
+                        drawLine(0, 5); drawLine(5, 6); drawLine(6, 7); drawLine(7, 8);
 
-                        // 2. 绘制关键点
-                        drawPoint(wrist, 6);  // 手腕大一点
-                        drawPoint(thumb, 4);
-                        drawPoint(index, 4);
-                        drawPoint(pinky, 4);
-                    };
+                        // 中指 (0-9-10-11-12)
+                        drawLine(9, 10); drawLine(10, 11); drawLine(11, 12);
 
-                    if (showLeft) drawHand(leftWrist, leftIndex, leftThumb, leftPinky, '#FF0000'); // 左手红色
-                    if (showRight) drawHand(rightWrist, rightIndex, rightThumb, rightPinky, '#0000FF'); // 右手蓝色
+                        // 无名指 (0-13-14-15-16)
+                        drawLine(13, 14); drawLine(14, 15); drawLine(15, 16);
+
+                        // 小指 (0-17-18-19-20)
+                        drawLine(17, 18); drawLine(18, 19); drawLine(19, 20);
+
+                        // 手掌基部连接 (0-5, 0-9, 0-13, 0-17) - 实际上0是手腕，连接到各个指根
+                        drawLine(0, 9); drawLine(0, 13); drawLine(0, 17);
+
+                        // 指根横向连接 (5-9-13-17)
+                        drawLine(5, 9); drawLine(9, 13); drawLine(13, 17);
+                    });
                 }
 
                 // 识别手势
                 let currentGesture = null;
-                if (pose && gestureRecognizer) {
-                    currentGesture = gestureRecognizer.recognize(pose, handPos);
+                if (hands && hands.length > 0 && gestureRecognizer && handPos) {
+                    // 找到与 handPos 对应的手 (通过 handedness 匹配)
+                    // handPos 是由 PoseDetector 选出的最佳手
+                    let targetHand = hands[0];
+                    if (handPos.handedness) {
+                        const matchingHand = hands.find(h => h.handedness === handPos.handedness);
+                        if (matchingHand) {
+                            targetHand = matchingHand;
+                        }
+                    }
+
+                    // 传递正确的手部关键点
+                    currentGesture = gestureRecognizer.recognize({ keypoints: targetHand.keypoints }, handPos);
                 }
 
                 // 如果有捏合手势，绘制视觉指示
@@ -2214,10 +2208,32 @@ function animate() {
             // 确保蝴蝶位置合理
             const butterflyPos = butterfly.getPosition();
             if (!butterflyPos ||
-                isNaN(butterflyPos.x) || isNaN(butterflyPos.y) || isNaN(butterflyPos.z) ||
-                Math.abs(butterflyPos.x) > 100 || Math.abs(butterflyPos.y) > 100 || Math.abs(butterflyPos.z) > 100) {
+                isNaN(butterflyPos.x) || isNaN(butterflyPos.y) || isNaN(butterflyPos.z)) {
                 console.warn('Butterfly position invalid, resetting...');
                 butterfly.setTargetPosition(0, 3, 0);
+            } else {
+                // 限制蝴蝶移动范围 (Constrain Butterfly Movement)
+                const MAX_X = 10;
+                const MIN_X = -10;
+                const MAX_Y = 10;
+                const MIN_Y = -5;
+                const MAX_Z = 5;
+                const MIN_Z = -5;
+
+                let clampedX = Math.max(MIN_X, Math.min(MAX_X, butterflyPos.x));
+                let clampedY = Math.max(MIN_Y, Math.min(MAX_Y, butterflyPos.y));
+                let clampedZ = Math.max(MIN_Z, Math.min(MAX_Z, butterflyPos.z));
+
+                if (clampedX !== butterflyPos.x || clampedY !== butterflyPos.y || clampedZ !== butterflyPos.z) {
+                    // 如果超出范围，强制拉回
+                    butterfly.group.position.set(clampedX, clampedY, clampedZ);
+                    // 同时更新目标位置，防止它继续往外飞
+                    if (butterfly.targetPosition) {
+                        butterfly.targetPosition.x = Math.max(MIN_X, Math.min(MAX_X, butterfly.targetPosition.x));
+                        butterfly.targetPosition.y = Math.max(MIN_Y, Math.min(MAX_Y, butterfly.targetPosition.y));
+                        butterfly.targetPosition.z = Math.max(MIN_Z, Math.min(MAX_Z, butterfly.targetPosition.z));
+                    }
+                }
             }
         }
     }

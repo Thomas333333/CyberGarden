@@ -68,8 +68,10 @@ class EnvironmentGeneratorAgent:
             return self._get_default_environment(emotion, emotion_intensity)
         
         try:
-            msg = Msg(name=self.name, content=prompt, role="user")
-            response = self.model(msg)
+            # msg = Msg(name=self.name, content=prompt, role="user")
+            # AgentScope model wrapper expects a list of dicts or similar standard format
+            messages = [{"role": "user", "content": prompt}]
+            response = self.model(messages)
             
             # 如果模型返回的是异步结果，需要 await
             if hasattr(response, '__await__'):
