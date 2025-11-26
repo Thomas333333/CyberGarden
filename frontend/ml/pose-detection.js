@@ -12,7 +12,7 @@ class PoseDetector {
         this.handPosition = null;
         this.callbacks = [];
     }
-    
+
     // 加载脚本文件的辅助方法
     loadScript(src) {
         return new Promise((resolve, reject) => {
@@ -22,7 +22,7 @@ class PoseDetector {
                 resolve();
                 return;
             }
-            
+
             const script = document.createElement('script');
             script.src = src;
             script.type = 'text/javascript';
@@ -35,19 +35,19 @@ class PoseDetector {
     async init() {
         try {
             console.log('开始初始化姿态检测器（使用本地文件）...');
-            
+
             // 检查全局变量是否已加载（通过 script 标签）
             if (typeof window.tf === 'undefined') {
                 throw new Error('TensorFlow.js 未加载，请确保 script 标签已添加到 HTML');
             }
             console.log('✓ TensorFlow.js 已加载');
-            
+
             // 初始化 TensorFlow.js backend
             const tf = window.tf;
             console.log('等待 TensorFlow.js 后端初始化...');
             await tf.ready();
             console.log('✓ TensorFlow.js 后端已就绪');
-            
+
             // 检查可用的后端
             let backends = [];
             try {
@@ -65,9 +65,9 @@ class PoseDetector {
                 console.warn('无法获取后端列表，使用默认后端:', e);
                 backends = ['webgl', 'cpu'];
             }
-            
+
             console.log('可用的后端:', backends);
-            
+
             // 尝试使用 webgl 后端（更兼容），如果不可用则使用默认后端
             try {
                 if (backends.length > 0 && (backends.includes('webgl') || backends.indexOf('webgl') >= 0)) {
@@ -87,74 +87,74 @@ class PoseDetector {
             } catch (e) {
                 console.log('设置后端时出错，使用默认后端:', tf.getBackend(), e);
             }
-            
+
             if (typeof window.poseDetection === 'undefined') {
                 throw new Error('Pose Detection 未加载，请确保 script 标签已添加到 HTML');
             }
             console.log('✓ Pose Detection 已加载');
-            
+
             // 使用全局变量
             const poseDetection = window.poseDetection;
             console.log('poseDetection 对象:', poseDetection);
             console.log('poseDetection 的键:', Object.keys(poseDetection || {}));
-            
+
             if (!poseDetection || !poseDetection.SupportedModels) {
                 console.error('poseDetection 对象:', poseDetection);
                 throw new Error('poseDetection.SupportedModels 未定义，请检查库是否正确加载');
             }
-            
+
             console.log('SupportedModels:', poseDetection.SupportedModels);
-            
+
             // 创建检测器 - 尝试使用 BlazePose 作为备用方案
             let detector = null;
             let error = null;
-            
+
             // 首先尝试 BlazePose (更可靠，不需要外部依赖)
             try {
                 console.log('尝试使用 BlazePose 检测器（推荐）...');
-                
+
                 // 检查 BlazePose 是否可用
                 if (!poseDetection.SupportedModels.BlazePose) {
                     throw new Error('BlazePose 模型不可用');
                 }
-                
+
                 const model = poseDetection.SupportedModels.BlazePose;
                 console.log('BlazePose 模型:', model);
-                
+
                 const detectorConfig = {
                     runtime: 'tfjs',
                     modelType: 'full',
                     enableSmoothing: true,
                 };
-                
+
                 detector = await poseDetection.createDetector(model, detectorConfig);
                 console.log('✓ BlazePose 检测器初始化成功');
             } catch (blazeposeError) {
                 console.warn('BlazePose 初始化失败，尝试 MediaPipe:', blazeposeError);
                 error = blazeposeError;
-                
+
                 // 备用方案：使用 MediaPipe
                 try {
                     console.log('尝试使用 MediaPipe 检测器...');
-                    
+
                     // 检查 MediaPipe 是否可用
                     if (!poseDetection.SupportedModels.MediaPipe) {
                         throw new Error('MediaPipe 模型不可用');
                     }
-                    
+
                     const model = poseDetection.SupportedModels.MediaPipe;
                     console.log('MediaPipe 模型:', model);
-                    
+
                     // 尝试多个可能的 solutionPath
                     const solutionPaths = [
                         'https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1635989137',
                         'https://cdn.jsdelivr.net/npm/@mediapipe/pose',
                         'https://unpkg.com/@mediapipe/pose@0.5.1635989137',
                     ];
-                    
+
                     let mediapipeDetector = null;
                     let lastError = null;
-                    
+
                     for (const solutionPath of solutionPaths) {
                         try {
                             console.log(`尝试 solutionPath: ${solutionPath}`);
@@ -164,7 +164,7 @@ class PoseDetector {
                                 modelType: 'full',
                                 enableSmoothing: true,
                             };
-                            
+
                             mediapipeDetector = await poseDetection.createDetector(model, detectorConfig);
                             console.log(`✓ MediaPipe 检测器初始化成功 (使用 ${solutionPath})`);
                             break;
@@ -174,18 +174,18 @@ class PoseDetector {
                             continue;
                         }
                     }
-                    
+
                     if (!mediapipeDetector) {
                         throw lastError || new Error('所有 MediaPipe solutionPath 都失败');
                     }
-                    
+
                     detector = mediapipeDetector;
                 } catch (mediapipeError) {
                     console.error('MediaPipe 也初始化失败:', mediapipeError);
                     throw new Error(`所有检测器初始化失败。BlazePose: ${blazeposeError.message}, MediaPipe: ${mediapipeError.message}`);
                 }
             }
-            
+
             this.detector = detector;
             console.log('✓ Pose detector 初始化成功');
             return true;
@@ -226,7 +226,7 @@ class PoseDetector {
             return false;
         }
     }
-    
+
     isDetectingActive() {
         return this.isDetecting === true;
     }
@@ -287,7 +287,7 @@ class PoseDetector {
         // BlazePose: left_wrist, right_wrist (相同)
         let leftWrist = pose.keypoints.find(kp => kp.name === 'left_wrist');
         let rightWrist = pose.keypoints.find(kp => kp.name === 'right_wrist');
-        
+
         // 如果找不到，尝试使用索引（BlazePose 可能使用索引）
         if (!leftWrist && pose.keypoints.length > 15) {
             leftWrist = pose.keypoints[15]; // MediaPipe 左手腕索引
@@ -313,7 +313,7 @@ class PoseDetector {
             // 假设屏幕中心为 (0, 0, 0)，范围映射到花园空间
             const normalizedX = hand.x; // 已经是 0-1
             const normalizedY = hand.y; // 已经是 0-1
-            
+
             // 转换为 3D 空间坐标（-10 到 10 的范围）
             const x = (normalizedX - 0.5) * 20; // -10 到 10
             const y = (0.5 - normalizedY) * 15; // -7.5 到 7.5（翻转Y轴）

@@ -1,5 +1,4 @@
 import asyncio
-import cv2
 import numpy as np
 import librosa
 import pyaudio
@@ -11,7 +10,6 @@ from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from deepface import DeepFace
 import uvicorn
 from dotenv import load_dotenv
 import assemblyai as aai
@@ -390,40 +388,6 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
         print(f"✗ WebSocket disconnected. Remaining connections: {len(manager.active_connections)}")
 
-# --- 情绪稳定性处理 ---
-class EmotionStabilizer:
-    def __init__(self, window_size=10, threshold=0.6, min_confidence=0.35):
-        self.emotion_history = deque(maxlen=window_size)
-        self.current_emotion = "neutral"
-        self.confidence_threshold = threshold
-        self.min_confidence = min_confidence
-    
-    def update(self, emotion, confidence=None):
-        """更新情绪，返回稳定后的情绪"""
-        if confidence is not None and confidence < self.min_confidence:
-            # 低置信度时跳过更新，避免频繁跳变
-            return self.current_emotion
-
-        self.emotion_history.append(emotion)
-        
-        # 统计最近的情绪分布
-        emotion_counts = {}
-        for e in self.emotion_history:
-            emotion_counts[e] = emotion_counts.get(e, 0) + 1
-        
-        # 找到最常见的情绪
-        if emotion_counts:
-            most_common = max(emotion_counts.items(), key=lambda x: x[1])
-            emotion_freq = most_common[1] / len(self.emotion_history)
-            
-            # 只有当情绪频率超过阈值时才更新
-            if emotion_freq >= self.confidence_threshold:
-                self.current_emotion = most_common[0]
-        
-        return self.current_emotion
-
-emotion_stabilizer = EmotionStabilizer(window_size=12, threshold=0.5, min_confidence=0.4)
-
 # --- TEST ONLY: 全局共享帧和情绪数据（用于调试摄像头叠加显示） ---
 latest_frame = None
 latest_emotion_snapshot = {
@@ -439,25 +403,8 @@ _face_presence_score = 0.0
 # --- 音频和视频分析 ---
 async def analyze_media(coordinator_instance=None):
     # 初始化摄像头
-    cap = None
-    try:
-        cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
-            print("Warning: Could not open camera")
-            cap = None
-    except Exception as e:
-        print(f"Warning: Camera initialization failed: {e}")
-        cap = None
-    
-    if not cap:
-        print("Camera not available. Continuing without video analysis...")
-    else:
-        # 设置摄像头分辨率（提高检测精度）
-        try:
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        except Exception as e:
-            print(f"Warning: Could not set camera resolution: {e}")
+    # Camera disabled in backend to avoid conflict with frontend.
+    print("Camera disabled in backend to avoid conflict with frontend.")
     
     # 初始化音频（添加错误处理）
     CHUNK = 2048  # 增加块大小以提高音高检测精度
@@ -546,19 +493,19 @@ async def analyze_media(coordinator_instance=None):
         confidence = 0.5  # 默认置信度
         
         while True:
-            # 1. 读取视频帧（降低帧率以减少计算负担）
-            if cap:
-                ret, frame = cap.read()
-                if not ret:
-                    await asyncio.sleep(0.1)
-                    continue
-            else:
-                # 如果没有摄像头，使用空白帧
-                frame = np.zeros((480, 640, 3), dtype=np.uint8)
-                await asyncio.sleep(0.1)
+            # 1. 读取视频帧（已禁用）
+            # if cap:
+            #     ret, frame = cap.read()
+            #     if not ret:
+            #         await asyncio.sleep(0.1)
+            #         continue
+            # else:
+            #     # 如果没有摄像头，使用空白帧
+            #     frame = np.zeros((480, 640, 3), dtype=np.uint8)
+            #     await asyncio.sleep(0.1)
             
             frame_count += 1
-            analysis_frame = frame.copy()
+            # analysis_frame = frame.copy()
             
             # 2. 读取音频块（如果音频流可用）
             if stream and stream.is_active():
@@ -573,52 +520,56 @@ async def analyze_media(coordinator_instance=None):
                 # 如果没有音频流，使用静音
                 audio_array = np.zeros(CHUNK, dtype=np.float32)
             
-            # 3. 分析情绪（降低检测频率）
-            raw_emotion = latest_emotion_snapshot.get("raw_emotion", "neutral")
-            confidence = latest_emotion_snapshot.get("confidence", 0.0)
-            raw_confidence = latest_emotion_snapshot.get("raw_confidence", 0.0)
-            raw_face_detected = latest_emotion_snapshot.get("raw_face_detected", False)
-            stable_face_detected = latest_emotion_snapshot.get("stable_face_detected", False)
-            detection_updated = False
-            if frame_count % 3 == 0:  # 每3帧检测一次
-                try:
-                    # 缩小图像以提高速度
-                    small_frame = cv2.resize(analysis_frame, (320, 240))
-                    rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
-                    
-                    result = DeepFace.analyze(
-                        rgb_frame,
-                        actions=['emotion'],
-                        detector_backend='opencv',
-                        enforce_detection=False,
-                        silent=True
-                    )
-                    if isinstance(result, list):
-                        result = result[0]
-                    
-                    # 获取情绪和置信度
-                    emotion_scores = result.get('emotion', {})
-                    if emotion_scores:
-                        emotion = max(emotion_scores.items(), key=lambda x: x[1])[0]
-                        confidence = emotion_scores.get(emotion, 0) / 100.0
-                    else:
-                        emotion = result.get('dominant_emotion', 'neutral')
-                        confidence = 0.5
-                    
-                    # 使用稳定器平滑情绪
-                    emotion = emotion_stabilizer.update(emotion, confidence)
-                    
-                    # 计算情绪持续时间
-                    if emotion == last_emotion:
-                        emotion_duration += 0.15
-                    else:
-                        emotion_duration = 0.15
-                        last_emotion = emotion
-                    
-                except Exception as e:
-                    # 只在出错时打印，避免刷屏
-                    if frame_count % 30 == 0:
-                        print(f"Emotion analysis error: {e}")
+            # 3. 分析情绪（已禁用后端视觉情绪分析）
+            # 默认情绪为 neutral，或者等待前端发送情绪数据（如果需要）
+            emotion = "neutral"
+            confidence = 0.5
+            
+            # raw_emotion = latest_emotion_snapshot.get("raw_emotion", "neutral")
+            # confidence = latest_emotion_snapshot.get("confidence", 0.0)
+            # raw_confidence = latest_emotion_snapshot.get("raw_confidence", 0.0)
+            # raw_face_detected = latest_emotion_snapshot.get("raw_face_detected", False)
+            # stable_face_detected = latest_emotion_snapshot.get("stable_face_detected", False)
+            # detection_updated = False
+            # if frame_count % 3 == 0:  # 每3帧检测一次
+            #     try:
+            #         # 缩小图像以提高速度
+            #         small_frame = cv2.resize(analysis_frame, (320, 240))
+            #         rgb_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+            #         
+            #         result = DeepFace.analyze(
+            #             rgb_frame,
+            #             actions=['emotion'],
+            #             detector_backend='opencv',
+            #             enforce_detection=False,
+            #             silent=True
+            #         )
+            #         if isinstance(result, list):
+            #             result = result[0]
+            #         
+            #         # 获取情绪和置信度
+            #         emotion_scores = result.get('emotion', {})
+            #         if emotion_scores:
+            #             emotion = max(emotion_scores.items(), key=lambda x: x[1])[0]
+            #             confidence = emotion_scores.get(emotion, 0) / 100.0
+            #         else:
+            #             emotion = result.get('dominant_emotion', 'neutral')
+            #             confidence = 0.5
+            #         
+            #         # 使用稳定器平滑情绪
+            #         emotion = emotion_stabilizer.update(emotion, confidence)
+            #         
+            #         # 计算情绪持续时间
+            #         if emotion == last_emotion:
+            #             emotion_duration += 0.15
+            #         else:
+            #             emotion_duration = 0.15
+            #             last_emotion = emotion
+            #         
+            #     except Exception as e:
+            #         # 只在出错时打印，避免刷屏
+            #         if frame_count % 30 == 0:
+            #             print(f"Emotion analysis error: {e}")
             
             # 4. 分析响度 (RMS) - 平滑处理
             try:
@@ -710,8 +661,8 @@ async def analyze_media(coordinator_instance=None):
         traceback.print_exc()
     finally:
         # 清理资源
-        if cap:
-            cap.release()
+        # if cap:
+        #     cap.release()
         if stream:
             try:
                 if stream.is_active():

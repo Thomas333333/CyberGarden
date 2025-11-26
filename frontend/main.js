@@ -1103,31 +1103,75 @@ async function initPoseDetection() {
     try {
         console.log('开始初始化姿态检测...');
 
+        // 检查是否已经初始化且正在运行
+        const existingVideo = document.getElementById('camera-feed');
+        if (existingVideo && existingVideo.srcObject && !existingVideo.paused) {
+            console.log('姿态检测似乎已经在运行，跳过初始化');
+            return;
+        }
+
         // 获取摄像头流
         const stream = await navigator.mediaDevices.getUserMedia({
             video: { width: 640, height: 480 }
         });
         console.log('✓ 摄像头权限已获取');
 
-        // 创建隐藏的 video 元素用于姿态检测
-        const video = document.createElement('video');
-        video.srcObject = stream;
-        video.autoplay = true;
-        video.playsInline = true;
-        video.style.display = 'none';
-        document.body.appendChild(video);
+        // 创建或获取 video 元素
+        let video = document.getElementById('camera-feed');
+        if (!video) {
+            video = document.createElement('video');
+            video.id = 'camera-feed';
+            document.body.appendChild(video);
+        }
+
+        // 强制应用样式，确保可见
+        video.style.position = 'absolute';
+        video.style.bottom = '20px';
+        video.style.right = '20px';
+        video.style.width = '320px';
+        video.style.height = '240px';
+        video.style.zIndex = '1000'; // 确保在最上层
+        video.style.display = 'block';
+        video.style.border = '2px solid rgba(184, 212, 227, 0.3)';
+        video.style.borderRadius = '12px';
+        video.style.transform = 'scaleX(-1)'; // 镜像
+        video.style.objectFit = 'cover';
+
+        console.log('✓ Camera video element configured');
+
+        // 添加屏幕调试信息
+        let debugInfo = document.getElementById('camera-debug');
+        if (!debugInfo) {
+            debugInfo = document.createElement('div');
+            debugInfo.id = 'camera-debug';
+            document.body.appendChild(debugInfo);
+        }
+        debugInfo.style.position = 'absolute';
+        debugInfo.style.bottom = '270px';
+        debugInfo.style.right = '20px';
+        debugInfo.style.color = 'white';
+        debugInfo.style.zIndex = '1000';
+        debugInfo.textContent = 'Camera Status: Initializing...';
 
         // 等待视频就绪
         await new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
-                reject(new Error('视频加载超时'));
+                // 如果超时但视频已经有数据了，也算成功
+                if (video.readyState >= 1) {
+                    console.log('视频加载等待超时，但readyState足够，继续...');
+                    resolve();
+                } else {
+                    reject(new Error('视频加载超时'));
+                }
             }, 10000);
 
+            // 先绑定事件
             video.onloadedmetadata = () => {
                 clearTimeout(timeout);
                 video.width = video.videoWidth;
                 video.height = video.videoHeight;
                 console.log(`✓ 视频已就绪: ${video.width}x${video.height}`);
+                if (debugInfo) debugInfo.textContent = `Camera Ready: ${video.videoWidth}x${video.videoHeight}`;
                 resolve();
             };
 
@@ -1135,6 +1179,18 @@ async function initPoseDetection() {
                 clearTimeout(timeout);
                 reject(err);
             };
+
+            // 设置源
+            video.srcObject = stream;
+            video.autoplay = true;
+            video.playsInline = true;
+            video.muted = true;
+
+            // 如果已经就绪（可能是因为缓存或重用），手动触发
+            if (video.readyState >= 1) {
+                console.log('视频元数据已就绪');
+                video.onloadedmetadata();
+            }
         });
 
         // 确保视频正在播放
@@ -1151,14 +1207,186 @@ async function initPoseDetection() {
         if (started) {
             console.log('✓ 姿态检测已启动');
 
+            // 创建或获取 overlay canvas
+            let overlayCanvas = document.getElementById('camera-overlay');
+            if (!overlayCanvas) {
+                overlayCanvas = document.createElement('canvas');
+                overlayCanvas.id = 'camera-overlay';
+                document.body.appendChild(overlayCanvas);
+            }
+
+            overlayCanvas.width = 640;
+            overlayCanvas.height = 480;
+            // 强制样式以匹配视频
+            overlayCanvas.style.position = 'absolute';
+            overlayCanvas.style.bottom = '20px';
+            overlayCanvas.style.right = '20px';
+            overlayCanvas.style.width = '320px';
+            overlayCanvas.style.height = '240px';
+            overlayCanvas.style.zIndex = '1001'; // 比视频高
+            overlayCanvas.style.pointerEvents = 'none';
+            overlayCanvas.style.transform = 'scaleX(-1)';
+            overlayCanvas.style.borderRadius = '12px';
+
+            const ctx = overlayCanvas.getContext('2d');
+
+            // 用于节流 WebSocket 消息
+            let lastSendTime = 0;
+            const SEND_INTERVAL = 100; // 100ms = 10fps
+
             // 注册姿态检测回调
             poseDetector.onPoseDetected((pose, handPos) => {
-                handPosition = handPos;
+                // 清除画布
+                ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+                // 1. 绘制手势控制区域
+                const drawRegions = () => {
+                    const w = overlayCanvas.width;
+                    const h = overlayCanvas.height;
+
+                    ctx.save();
+                    ctx.globalAlpha = 0.1; // 半透明背景
+
+                    // 上方区域 (Top 40%) - 控制向上
+                    ctx.fillStyle = '#90c695';
+                    ctx.fillRect(0, 0, w, h * 0.4);
+
+                    // 下方区域 (Bottom 40%) - 控制向下
+                    ctx.fillStyle = '#90c695';
+                    ctx.fillRect(0, h * 0.6, w, h * 0.4);
+
+                    // 左侧区域 (Left 40%, Middle 20% vertical) - 控制向左
+                    ctx.fillStyle = '#a8c8ec';
+                    ctx.fillRect(0, h * 0.4, w * 0.4, h * 0.2);
+
+                    // 右侧区域 (Right 40%, Middle 20% vertical) - 控制向右
+                    ctx.fillStyle = '#a8c8ec';
+                    ctx.fillRect(w * 0.6, h * 0.4, w * 0.4, h * 0.2);
+
+                    ctx.restore();
+
+                    // 绘制文字标签
+                    ctx.save();
+                    ctx.font = 'bold 16px Arial';
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                    ctx.shadowBlur = 2;
+
+                    ctx.fillText('👆 UP', w / 2, h * 0.2);
+                    ctx.fillText('👇 DOWN', w / 2, h * 0.8);
+                    ctx.fillText('👈 LEFT', w * 0.2, h * 0.5);
+                    ctx.fillText('👉 RIGHT', w * 0.8, h * 0.5);
+
+                    // 中心区域提示
+                    ctx.font = '12px Arial';
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                    ctx.fillText('Center to Stop', w / 2, h * 0.5);
+
+                    ctx.restore();
+                };
+                drawRegions();
+
+                // 绘制手部关键点
+                if (pose && pose.keypoints) {
+                    // 获取关键点
+                    const leftWrist = pose.keypoints.find(kp => kp.name === 'left_wrist');
+                    const rightWrist = pose.keypoints.find(kp => kp.name === 'right_wrist');
+                    const leftIndex = pose.keypoints.find(kp => kp.name === 'left_index');
+                    const rightIndex = pose.keypoints.find(kp => kp.name === 'right_index');
+                    const leftThumb = pose.keypoints.find(kp => kp.name === 'left_thumb');
+                    const rightThumb = pose.keypoints.find(kp => kp.name === 'right_thumb');
+                    const leftPinky = pose.keypoints.find(kp => kp.name === 'left_pinky');
+                    const rightPinky = pose.keypoints.find(kp => kp.name === 'right_pinky');
+
+                    // 过滤"幽灵"手：如果左右手腕太近，只显示置信度高的那个
+                    let showLeft = leftWrist && leftWrist.score > 0.3;
+                    let showRight = rightWrist && rightWrist.score > 0.3;
+
+                    if (showLeft && showRight) {
+                        const dx = leftWrist.x - rightWrist.x;
+                        const dy = leftWrist.y - rightWrist.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist < 50) {
+                            if (leftWrist.score > rightWrist.score) {
+                                showRight = false;
+                            } else {
+                                showLeft = false;
+                            }
+                        }
+                    }
+
+                    // 绘制函数
+                    const drawHand = (wrist, index, thumb, pinky, color) => {
+                        ctx.strokeStyle = color;
+                        ctx.lineWidth = 2;
+                        ctx.fillStyle = color;
+
+                        // 辅助函数：绘制线段
+                        const drawLine = (p1, p2) => {
+                            if (p1 && p2 && p1.score > 0.3 && p2.score > 0.3) {
+                                ctx.beginPath();
+                                ctx.moveTo(p1.x, p1.y);
+                                ctx.lineTo(p2.x, p2.y);
+                                ctx.stroke();
+                            }
+                        };
+
+                        // 辅助函数：绘制点
+                        const drawPoint = (p, size = 4) => {
+                            if (p && p.score > 0.3) {
+                                ctx.beginPath();
+                                ctx.arc(p.x, p.y, size, 0, 2 * Math.PI);
+                                ctx.fill();
+                            }
+                        };
+
+                        // 1. 绘制骨架连接
+                        // 手腕到手指
+                        drawLine(wrist, thumb);
+                        drawLine(wrist, index);
+                        drawLine(wrist, pinky);
+
+                        // 手指之间（模拟手掌边缘）
+                        drawLine(thumb, index);
+                        drawLine(index, pinky);
+                        drawLine(pinky, wrist); // 闭合手掌
+
+                        // 2. 绘制关键点
+                        drawPoint(wrist, 6);  // 手腕大一点
+                        drawPoint(thumb, 4);
+                        drawPoint(index, 4);
+                        drawPoint(pinky, 4);
+                    };
+
+                    if (showLeft) drawHand(leftWrist, leftIndex, leftThumb, leftPinky, '#FF0000'); // 左手红色
+                    if (showRight) drawHand(rightWrist, rightIndex, rightThumb, rightPinky, '#0000FF'); // 右手蓝色
+                }
 
                 // 识别手势
                 let currentGesture = null;
                 if (pose && gestureRecognizer) {
                     currentGesture = gestureRecognizer.recognize(pose, handPos);
+                }
+
+                // 如果有捏合手势，绘制视觉指示
+                if (currentGesture && (currentGesture.type === 'pinch_start' || currentGesture.type === 'pinch_hold')) {
+                    ctx.fillStyle = 'rgba(0, 255, 0, 0.2)'; // 稍微淡一点
+                    ctx.fillRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+                    ctx.font = 'bold 32px Arial';
+                    ctx.fillStyle = '#00FF00';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                    ctx.shadowBlur = 4;
+                    ctx.fillText('👌 Pinch Detected', overlayCanvas.width / 2, overlayCanvas.height / 2);
+
+                    // 重置样式以免影响其他绘制
+                    ctx.shadowBlur = 0;
+                    ctx.textAlign = 'start';
+                    ctx.textBaseline = 'alphabetic';
                 }
 
                 // 更新手势显示（即使没有手势也显示手部检测状态）
@@ -1169,12 +1397,15 @@ async function initPoseDetection() {
                     trackHandMovement(handPos);
                 }
 
-                // 发送姿态数据到后端（可选）
-                if (ws && ws.readyState === WebSocket.OPEN && handPos) {
+                // 发送姿态数据到后端（节流）
+                const now = Date.now();
+                if (ws && ws.readyState === WebSocket.OPEN && handPos && (now - lastSendTime > SEND_INTERVAL)) {
                     ws.send(JSON.stringify({
                         type: 'pose',
                         hand_position: handPos
+
                     }));
+                    lastSendTime = now;
                 }
             });
 
@@ -1505,20 +1736,27 @@ function handleWebSocketMessage(event) {
         }
 
         // --- 更新表情特征显示 ---
-        const emotionDisplayNames = {
-            'happy': '😊 开心',
-            'sad': '😢 悲伤',
-            'angry': '😠 愤怒',
-            'surprise': '😲 惊讶',
-            'fear': '😨 恐惧',
-            'disgust': '🤢 厌恶',
-            'neutral': '😐 中性'
-        };
-        emotionDisplay.textContent = emotionDisplayNames[emotionKey] || '😐 中性';
-        emotionEffect.textContent = `${profile.description}（${faceDetected ? '已检测到人脸' : '未检测到人脸'}）`;
+        if (emotionDisplay && emotionEffect) {
+            const emotionDisplayNames = {
+                'happy': '😊 开心',
+                'sad': '😢 悲伤',
+                'angry': '😠 愤怒',
+                'surprise': '😲 惊讶',
+                'fear': '😨 恐惧',
+                'disgust': '🤢 厌恶',
+                'neutral': '😐 中性'
+            };
+            // 注意：这里使用的是 data.emotion，之前代码中使用了 emotionKey (可能是未定义的变量，或者是上下文中的)
+            // 假设 data.emotion 是正确的键
+            emotionDisplay.textContent = emotionDisplayNames[data.emotion] || '😐 中性';
+            // emotionEffect.textContent = `${profile.description}（${faceDetected ? '已检测到人脸' : '未检测到人脸'}）`;
+            emotionEffect.textContent = '-'; // 由于后端不再发送详细的 profile 和 faceDetected，这里简化显示
+        }
+
         if (emotionConfidence) {
-            const confPercent = Math.round(rawConfidence * 100);
-            emotionConfidence.textContent = `原始置信度: ${confPercent}%`;
+            // const confPercent = Math.round(rawConfidence * 100);
+            // emotionConfidence.textContent = `原始置信度: ${confPercent}%`;
+            emotionConfidence.textContent = '-';
         }
 
         // 获取情绪颜色（低饱和度）- 只在参数未固定时更新
