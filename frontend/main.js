@@ -584,7 +584,7 @@ async function processAudio(audioBlob) {
             voiceStatus.textContent = '🔄 Transcribing...';
         }
 
-        const transcribeResponse = await fetch('http://localhost:8000/api/transcribe', {
+        const transcribeResponse = await fetch('http://localhost:8002/api/transcribe', {
             method: 'POST',
             body: formData
         });
@@ -607,7 +607,7 @@ async function processAudio(audioBlob) {
             voiceStatus.textContent = '🌺 Generating flower...';
         }
 
-        const paramsResponse = await fetch('http://localhost:8000/api/generate-flower-params', {
+        const paramsResponse = await fetch('http://localhost:8002/api/generate-flower-params', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -678,6 +678,7 @@ function applyFlowerParams(flower, params) {
 document.addEventListener('DOMContentLoaded', () => {
     const voiceButton = document.getElementById('voice-button');
     if (voiceButton) {
+        // 点击事件
         voiceButton.addEventListener('click', () => {
             if (!isRecording) {
                 startRecording();
@@ -686,6 +687,23 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // 添加空格键控制录音
+    document.addEventListener('keydown', (event) => {
+        // 检查是否按下空格键
+        if (event.code === 'Space' || event.key === ' ') {
+            // 如果当前在语音交互阶段，且没有在输入框中输入（避免冲突）
+            if (currentPhase === 'voice_interaction' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+                event.preventDefault(); // 防止页面滚动
+
+                if (!isRecording) {
+                    startRecording();
+                } else {
+                    stopRecording();
+                }
+            }
+        }
+    });
 });
 
 // --- 姿态检测和手势识别 ---
@@ -952,7 +970,7 @@ function connectWebSocket() {
             ws.close();
         }
 
-        const wsUrl = 'ws://localhost:8000/ws/data';
+        const wsUrl = 'ws://localhost:8002/ws/data';
         console.log('正在尝试连接到:', wsUrl);
         ws = new WebSocket(wsUrl);
 
@@ -993,8 +1011,8 @@ function connectWebSocket() {
             });
             console.error('请确保后端服务正在运行: cd backend && uv run python main.py');
             console.error('检查步骤:');
-            console.error('1. 确认后端在8000端口运行: lsof -i :8000');
-            console.error('2. 测试HTTP连接: curl http://localhost:8000/health');
+            console.error('1. 确认后端在8002端口运行: lsof -i :8002');
+            console.error('2. 测试HTTP连接: curl http://localhost:8002/health');
             isConnecting = false;
 
             if (statusElement) {
@@ -1066,7 +1084,7 @@ function connectWebSocket() {
 }
 
 // 初始化连接
-console.log('正在连接到后端 WebSocket: ws://localhost:8000/ws/data');
+console.log('正在连接到后端 WebSocket: ws://localhost:8002/ws/data');
 if (statusElement) {
     statusElement.textContent = '连接中...';
     statusElement.style.color = '#b8d4e3';

@@ -650,7 +650,8 @@ async def analyze_media(coordinator_instance=None):
             else:
                 # 如果没有连接，每30帧打印一次警告
                 if frame_count % 30 == 0:
-                    print(f"[{frame_count}] 警告: 没有活跃的WebSocket连接")
+                    # print(f"[{frame_count}] 警告: 没有活跃的WebSocket连接")
+                    pass
             
             # 9. 控制更新频率
             await asyncio.sleep(0.15)  # 降低更新频率
@@ -684,4 +685,4 @@ async def startup_event():
     asyncio.create_task(analyze_media(coordinator))
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8002)
