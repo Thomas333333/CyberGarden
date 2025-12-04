@@ -35,8 +35,8 @@ const camera = new THREE.PerspectiveCamera(
     1000
 );
 // 调整相机位置，清晰展示小行星和花朵
-camera.position.set(0, 4, 10);
-camera.lookAt(0, -4, 0); // 看向小行星中心（调整以适应新位置）
+camera.position.set(0, -10, 15);  // 降低相机高度以看到扁平星球
+camera.lookAt(0, -20, 0); // 看向星球和花朵的位置
 
 // 检查canvas元素
 const canvas = document.getElementById('c');
@@ -92,8 +92,9 @@ scene.add(planetLight);
 
 // --- 小行星/星球土壤（圆形土堆效果） ---
 // 创建一个圆形的小行星，像图片中的土堆
-const planetRadius = 4; // 小行星半径（减小，避免遮挡花朵）
-const planetSegments = 64; // 高精度，让表面更平滑
+const planetRadius = 30; // 增大半径以覆盖宽度
+const planetScaleY = 0.1; // 垂直压缩系数（椭球）
+const planetSegments = 128; // 增加分段数以保持平滑
 
 // 创建球体几何体
 const planetGeometry = new THREE.SphereGeometry(planetRadius, planetSegments, planetSegments);
@@ -124,14 +125,15 @@ planetGeometry.computeVertexNormals();
 
 // 创建土壤材质（清晰的棕色星球表面）
 const planetMaterial = new THREE.MeshStandardMaterial({
-    color: 0x8B4513, // 经典的棕色（SaddleBrown）
+    color: 0xC2B280, // 沙土色 (Ecru/Sand)，更像小王子的B-612星球
     roughness: 0.9,
     metalness: 0.0
 });
 
 const planet = new THREE.Mesh(planetGeometry, planetMaterial);
-planet.position.y = -6; // 往下移，放在屏幕下侧
+planet.position.y = -24; // 进一步下移，让地平线更低 (-24 + 30*0.4 = -12)
 planet.position.z = 0; // 居中
+planet.scale.set(1, planetScaleY, 1); // 垂直压扁
 planet.receiveShadow = true;
 planet.castShadow = true;
 scene.add(planet);
@@ -142,38 +144,183 @@ console.log('✓ 小行星添加到场景');
 
 // 移除白色小点细节，保持简洁
 
-// --- 创建花朵函数（小王子风格和彩虹风格） ---
+// --- 星空背景 ---
+// 创建星星粒子系统
+const starGeometry = new THREE.BufferGeometry();
+const starCount = 2000;
+const starPositions = new Float32Array(starCount * 3);
+const starSizes = new Float32Array(starCount);
+
+for (let i = 0; i < starCount; i++) {
+    // 在一个大球体内随机分布星星
+    const radius = 100 + Math.random() * 400; // 距离在100-500之间
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+
+    starPositions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+    starPositions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+    starPositions[i * 3 + 2] = radius * Math.cos(phi);
+
+    // 随机大小
+    starSizes[i] = Math.random() * 2 + 0.5;
+}
+
+starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+starGeometry.setAttribute('size', new THREE.BufferAttribute(starSizes, 1));
+
+// 为每颗星星添加闪烁属性
+const starTwinkleSpeed = new Float32Array(starCount);
+const starTwinklePhase = new Float32Array(starCount);
+for (let i = 0; i < starCount; i++) {
+    starTwinkleSpeed[i] = 0.5 + Math.random() * 2; // 闪烁速度
+    starTwinklePhase[i] = Math.random() * Math.PI * 2; // 初始相位
+}
+starGeometry.setAttribute('twinkleSpeed', new THREE.BufferAttribute(starTwinkleSpeed, 1));
+starGeometry.setAttribute('twinklePhase', new THREE.BufferAttribute(starTwinklePhase, 1));
+
+
+// 创建四芒星纹理
+const starCanvas = document.createElement('canvas');
+starCanvas.width = 64;
+starCanvas.height = 64;
+const starCtx = starCanvas.getContext('2d');
+
+// 绘制四芒星
+starCtx.fillStyle = 'white';
+starCtx.beginPath();
+const centerX = 32;
+const centerY = 32;
+const outerRadius = 30;
+const innerRadius = 10;
+
+// 四芒星有8个点（4个外点，4个内点）
+for (let i = 0; i < 8; i++) {
+    const angle = (i * Math.PI) / 4 - Math.PI / 2;
+    const radius = i % 2 === 0 ? outerRadius : innerRadius;
+    const x = centerX + Math.cos(angle) * radius;
+    const y = centerY + Math.sin(angle) * radius;
+
+    if (i === 0) {
+        starCtx.moveTo(x, y);
+    } else {
+        starCtx.lineTo(x, y);
+    }
+}
+starCtx.closePath();
+starCtx.fill();
+
+// 添加发光效果
+starCtx.shadowBlur = 10;
+starCtx.shadowColor = 'white';
+starCtx.fill();
+
+const starTexture = new THREE.CanvasTexture(starCanvas);
+
+const starMaterial = new THREE.PointsMaterial({
+    color: 0xffffff,
+    size: 2.5,
+    sizeAttenuation: true,
+    transparent: true,
+    opacity: 0.9,
+    map: starTexture,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+});
+
+const stars = new THREE.Points(starGeometry, starMaterial);
+scene.add(stars);
+console.log('✓ 星空背景添加到场景');
+
+// --- 流星效果 ---
+const shootingStars = [];
+
+function createShootingStar() {
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(6); // 2个点，每个3个坐标
+
+    // 随机起始位置（在视野范围内）
+    const startX = (Math.random() - 0.5) * 100;
+    const startY = Math.random() * 50 + 20; // 在上方
+    const startZ = (Math.random() - 0.5) * 100;
+
+    positions[0] = startX;
+    positions[1] = startY;
+    positions[2] = startZ;
+    positions[3] = startX;
+    positions[4] = startY;
+    positions[5] = startZ;
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+    const material = new THREE.LineBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 1.0,
+        linewidth: 2
+    });
+
+    const line = new THREE.Line(geometry, material);
+    scene.add(line);
+
+    // 流星属性
+    const shootingStar = {
+        line: line,
+        geometry: geometry,
+        material: material,
+        velocity: {
+            x: (Math.random() - 0.5) * 0.5,
+            y: -(Math.random() * 0.3 + 0.2), // 向下
+            z: (Math.random() - 0.5) * 0.5
+        },
+        life: 1.0,
+        tailLength: Math.random() * 3 + 2
+    };
+
+    shootingStars.push(shootingStar);
+}
+
+// 定期创建流星
+setInterval(() => {
+    if (Math.random() < 0.3) { // 30%概率
+        createShootingStar();
+    }
+}, 2000); // 每2秒检查一次
+
+console.log('✓ 流星系统初始化完成');
+
+
+// --- 创建花朵函数（改进的小王子风格） ---
 function createFlower(color = 0xffffff, position = { x: 0, y: 0, z: 0 }, style = 'littleprince') {
     const flowerGroup = new THREE.Group();
 
-    // 花茎（从小行星表面生长）
-    const stemHeight = style === 'littleprince' ? 1.2 : 1.8;
-    const stemGeometry = new THREE.CylinderGeometry(0.05, 0.07, stemHeight, 16);
+    // 花茎（更粗更明显）
+    const stemHeight = style === 'littleprince' ? 2.0 : 2.5;
+    const stemGeometry = new THREE.CylinderGeometry(0.08, 0.12, stemHeight, 16);
     const stemMaterial = new THREE.MeshStandardMaterial({
         color: 0x2d5016, // 深绿色
-        roughness: 0.9,
+        roughness: 0.8,
         metalness: 0.0
     });
     const stem = new THREE.Mesh(stemGeometry, stemMaterial);
-    stem.position.y = stemHeight / 2; // 从表面开始
+    stem.position.y = stemHeight / 2;
     stem.castShadow = true;
     flowerGroup.add(stem);
 
-    // 叶子（小王子风格有3片叶子）
+    // 叶子（更大更明显）
     if (style === 'littleprince') {
         for (let i = 0; i < 3; i++) {
-            const leafGeometry = new THREE.ConeGeometry(0.1, 0.3, 8);
+            const leafGeometry = new THREE.ConeGeometry(0.15, 0.5, 8);
             const leafMaterial = new THREE.MeshStandardMaterial({
-                color: 0x3d6b2a, // 深绿色叶子
-                roughness: 0.9,
+                color: 0x3d6b2a,
+                roughness: 0.8,
                 metalness: 0.0
             });
             const leaf = new THREE.Mesh(leafGeometry, leafMaterial);
-            const leafY = 0.2 + i * 0.4;
+            const leafY = 0.3 + i * 0.6;
             const leafAngle = (i / 3) * Math.PI * 2;
             leaf.position.y = leafY;
-            leaf.position.x = Math.cos(leafAngle) * 0.12;
-            leaf.position.z = Math.sin(leafAngle) * 0.12;
+            leaf.position.x = Math.cos(leafAngle) * 0.18;
+            leaf.position.z = Math.sin(leafAngle) * 0.18;
             leaf.rotation.z = Math.cos(leafAngle) * 0.3;
             leaf.rotation.x = 0.2;
             leaf.castShadow = true;
@@ -181,29 +328,28 @@ function createFlower(color = 0xffffff, position = { x: 0, y: 0, z: 0 }, style =
         }
     }
 
-    // 花瓣组 - 创建简洁的球状花朵
+    // 花瓣组 - 更大更漂亮
     const petalGroup = new THREE.Group();
-    const flowerHeight = stemHeight + 0.4; // 花朵在花茎顶部
+    const flowerHeight = stemHeight + 0.6;
 
-    // 彩虹渐变色数组
+    // 彩虹渐变色数组（更鲜艳）
     const rainbowColors = [
-        0x9b59b6, 0xe74c3c, 0xff6b9d, 0xff8c94,
-        0xffa07a, 0xffb347, 0xffd700, 0xffeb3b
+        0xff6b9d, 0xff8c94, 0xffa07a, 0xffb347,
+        0xffd700, 0xffeb3b, 0x9b59b6, 0xe74c3c
     ];
 
-    // 小王子风格：简洁的黄色球状花苞（参考图片中的球状花朵）
+    // 小王子风格：更大更明显的玫瑰
     if (style === 'littleprince') {
-        // 主花苞：黄色球体（稍微拉长，更像花苞）
-        const flowerGeometry = new THREE.SphereGeometry(0.35, 24, 24);
-        // 稍微拉长，让它看起来更像花苞
-        flowerGeometry.scale(1.0, 1.2, 1.0);
+        // 主花苞：更大的金黄色球体
+        const flowerGeometry = new THREE.SphereGeometry(0.6, 32, 32);
+        flowerGeometry.scale(1.0, 1.3, 1.0);
 
         const flowerMaterial = new THREE.MeshStandardMaterial({
-            color: 0xffd700, // 金黄色（参考图片中的黄色花朵）
-            roughness: 0.6,
+            color: 0xffd700,
+            roughness: 0.5,
             metalness: 0.1,
             emissive: 0xffd700,
-            emissiveIntensity: 0.15 // 轻微发光
+            emissiveIntensity: 0.2
         });
 
         const flowerBud = new THREE.Mesh(flowerGeometry, flowerMaterial);
@@ -212,57 +358,52 @@ function createFlower(color = 0xffffff, position = { x: 0, y: 0, z: 0 }, style =
         flowerBud.receiveShadow = true;
         petalGroup.add(flowerBud);
 
-        // 添加几片简单的花瓣围绕花苞（可选，让花朵更自然）
-        // 只添加4-5片大花瓣，不要太多
-        const petalColor = new THREE.Color(0xffeb3b); // 浅黄色花瓣
-        for (let i = 0; i < 5; i++) {
-            const angle = (i / 5) * Math.PI * 2;
-            // 创建简单的圆形花瓣
-            const petalGeometry = new THREE.CircleGeometry(0.25, 16);
+        // 更大更明显的花瓣
+        const petalColor = new THREE.Color(0xffeb3b);
+        for (let i = 0; i < 6; i++) {
+            const angle = (i / 6) * Math.PI * 2;
+            const petalGeometry = new THREE.CircleGeometry(0.45, 20);
             const petalMaterial = new THREE.MeshStandardMaterial({
                 color: petalColor,
                 side: THREE.DoubleSide,
-                roughness: 0.7,
+                roughness: 0.6,
                 metalness: 0.0,
                 transparent: true,
-                opacity: 0.8
+                opacity: 0.9
             });
             const petal = new THREE.Mesh(petalGeometry, petalMaterial);
 
-            // 花瓣围绕花苞，稍微向外倾斜
-            const radius = 0.4;
+            const radius = 0.65;
             petal.position.x = Math.cos(angle) * radius;
             petal.position.z = Math.sin(angle) * radius;
-            petal.position.y = flowerHeight - 0.1;
+            petal.position.y = flowerHeight - 0.15;
 
-            // 让花瓣朝向中心
             petal.lookAt(0, flowerHeight, 0);
-            petal.rotateX(-Math.PI / 3); // 稍微向下倾斜
+            petal.rotateX(-Math.PI / 3);
 
             petal.castShadow = true;
             petal.receiveShadow = true;
             petalGroup.add(petal);
         }
     } else {
-        // 彩虹风格：彩色球状花朵
+        // 彩虹风格：更大更鲜艳
         const petalCount = 6;
         for (let i = 0; i < petalCount; i++) {
             const angle = (i / petalCount) * Math.PI * 2;
             const petalColor = new THREE.Color(rainbowColors[i % rainbowColors.length]);
 
-            // 创建圆形花瓣
-            const petalGeometry = new THREE.CircleGeometry(0.3, 16);
+            const petalGeometry = new THREE.CircleGeometry(0.5, 20);
             const petalMaterial = new THREE.MeshStandardMaterial({
                 color: petalColor,
                 side: THREE.DoubleSide,
-                roughness: 0.7,
+                roughness: 0.6,
                 metalness: 0.0,
                 transparent: true,
-                opacity: 0.85
+                opacity: 0.9
             });
             const petal = new THREE.Mesh(petalGeometry, petalMaterial);
 
-            const radius = 0.5;
+            const radius = 0.7;
             petal.position.x = Math.cos(angle) * radius;
             petal.position.z = Math.sin(angle) * radius;
             petal.position.y = flowerHeight;
@@ -276,13 +417,13 @@ function createFlower(color = 0xffffff, position = { x: 0, y: 0, z: 0 }, style =
         }
 
         // 彩虹风格的中心
-        const centerGeometry = new THREE.SphereGeometry(0.2, 20, 20);
+        const centerGeometry = new THREE.SphereGeometry(0.35, 24, 24);
         const centerMaterial = new THREE.MeshStandardMaterial({
             color: 0xffd700,
             roughness: 0.4,
             metalness: 0.2,
             emissive: 0xffd700,
-            emissiveIntensity: 0.2
+            emissiveIntensity: 0.3
         });
         const center = new THREE.Mesh(centerGeometry, centerMaterial);
         center.position.y = flowerHeight;
@@ -290,10 +431,11 @@ function createFlower(color = 0xffffff, position = { x: 0, y: 0, z: 0 }, style =
         petalGroup.add(center);
     }
 
+
     flowerGroup.add(petalGroup);
     // 花朵位置：计算在小行星表面的位置
-    // 使用全局 planetRadius (已在第102行声明)
-    const planetCenterY = -6; // 与星球位置一致
+    // 使用全局 planetRadius 和 planetScaleY
+    const planetCenterY = -24; // 与星球位置一致 (planet.position.y)
     const planetCenterZ = 0;
 
     // 计算在小行星表面的位置（球面坐标）
@@ -304,19 +446,28 @@ function createFlower(color = 0xffffff, position = { x: 0, y: 0, z: 0 }, style =
     const maxDistance = planetRadius * 0.9; // 限制在行星表面90%范围内
     const clampedDistance = Math.min(distanceFromCenter, maxDistance);
 
-    // 计算在小行星表面的y位置（球面）
+    // 计算在小行星表面的y位置（椭球面）
     const surfaceX = Math.cos(angle) * clampedDistance;
     const surfaceZ = Math.sin(angle) * clampedDistance;
-    let surfaceY = Math.sqrt(Math.max(0, planetRadius * planetRadius - clampedDistance * clampedDistance));
 
-    // 确保花朵只在小行星的上半部分（y > 0），避免被遮挡
-    // 如果计算出的y值太小（在下半部分），强制放在上半部分
-    if (surfaceY < planetRadius * 0.3) {
-        surfaceY = planetRadius * 0.5; // 强制放在上半部分
+    // 对于扁平的椭球，直接使用最大高度（顶部）
+    // surfaceY = planetRadius * planetScaleY 是椭球的最大高度
+    let surfaceY = Math.sqrt(Math.max(0, planetRadius * planetRadius - clampedDistance * clampedDistance)) * planetScaleY;
+
+    // 确保花朵在可见的顶部（对于非常扁平的星球，所有花朵都应该在顶部）
+    // 当 planetScaleY 很小时（如0.1），所有花朵都放在最高点
+    if (planetScaleY < 0.3) {
+        surfaceY = planetRadius * planetScaleY; // 直接使用最大高度
+    } else if (surfaceY < planetRadius * planetScaleY * 0.3) {
+        surfaceY = planetRadius * planetScaleY * 0.5; // 强制放在上半部分
     }
 
     // 花朵从小行星表面生长
     flowerGroup.position.set(surfaceX, planetCenterY + surfaceY, surfaceZ);
+
+    // 调试：打印花朵位置
+    console.log(`花朵位置: x=${surfaceX.toFixed(2)}, y=${(planetCenterY + surfaceY).toFixed(2)}, z=${surfaceZ.toFixed(2)}, surfaceY=${surfaceY.toFixed(2)}`);
+
 
     // 让花朵垂直于小行星表面（朝向法线方向）
     const normal = new THREE.Vector3(surfaceX, surfaceY, surfaceZ).normalize();
@@ -387,9 +538,9 @@ flowerPositions.forEach((pos, index) => {
     scene.add(flower.group);
     flowers.push({
         ...flower,
-        targetScale: 1.0,
+        targetScale: 2.0,  // 增大初始缩放
         targetRotation: 0.0,
-        currentScale: 1.0,
+        currentScale: 2.0,  // 增大初始缩放
         currentRotation: 0.0,
         baseColor: 0xffffff,
         style: style,
@@ -1921,6 +2072,55 @@ function animate() {
             console.warn('Low FPS detected:', fps);
         }
     }
+
+    // 星星闪烁效果
+    const starSizes = starGeometry.attributes.size.array;
+    const twinkleSpeed = starGeometry.attributes.twinkleSpeed.array;
+    const twinklePhase = starGeometry.attributes.twinklePhase.array;
+
+    for (let i = 0; i < starCount; i++) {
+        const baseSize = Math.random() * 2 + 0.5;
+        const twinkle = Math.sin(time * twinkleSpeed[i] + twinklePhase[i]) * 0.5 + 0.5;
+        starSizes[i] = baseSize * (0.5 + twinkle * 0.5);
+    }
+    starGeometry.attributes.size.needsUpdate = true;
+
+    // 星星缓慢旋转（营造宇宙漂浮感）
+    stars.rotation.y += 0.0001;
+    stars.rotation.x += 0.00005;
+
+
+
+    // 更新流星
+    for (let i = shootingStars.length - 1; i >= 0; i--) {
+        const star = shootingStars[i];
+        const positions = star.geometry.attributes.position.array;
+
+        // 更新头部位置
+        positions[0] += star.velocity.x;
+        positions[1] += star.velocity.y;
+        positions[2] += star.velocity.z;
+
+        // 更新尾部位置（跟随头部，但有延迟）
+        positions[3] += star.velocity.x * 0.95;
+        positions[4] += star.velocity.y * 0.95;
+        positions[5] += star.velocity.z * 0.95;
+
+        star.geometry.attributes.position.needsUpdate = true;
+
+        // 减少生命值
+        star.life -= deltaTime * 0.5;
+        star.material.opacity = star.life;
+
+        // 移除消失的流星
+        if (star.life <= 0) {
+            scene.remove(star.line);
+            star.geometry.dispose();
+            star.material.dispose();
+            shootingStars.splice(i, 1);
+        }
+    }
+
 
     // 平滑颜色过渡（只在语音交互阶段或参数未固定时更新）
     if (!flowerParamsFixed || currentPhase === 'voice_interaction') {
