@@ -1,0 +1,9 @@
+{
+  "name": "cybergarden-frontend",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test ./utils/planet.test.js"
+  }
+}
+

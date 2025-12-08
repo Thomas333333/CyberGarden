@@ -13,6 +13,7 @@ import { ButterflyAI } from './ai/butterfly-ai.js';
 import { PhysicsWorld } from './physics/physics-world.js';
 import { FlowerShader } from './shaders/flower-shader.js';
 import { GPUParticleSystem } from './particles/gpu-particles.js';
+import { calculateSurfacePlacement, defaultPlanetConfig } from './utils/planet.js';
 
 // --- 日式低饱和度配色工具函数 ---
 function desaturateColor(hex, saturation = 0.4) {
@@ -138,6 +139,16 @@ planet.receiveShadow = true;
 planet.castShadow = true;
 scene.add(planet);
 console.log('✓ 小行星添加到场景');
+
+// 统一的星球配置，供花朵位置计算与测试复用
+const planetConfig = {
+    ...defaultPlanetConfig,
+    radius: planetRadius,
+    scaleY: planetScaleY,
+    center: { x: 0, y: planet.position.y, z: planet.position.z },
+    maxDistanceFactor: defaultPlanetConfig.maxDistanceFactor,
+    flowerYOffset: defaultPlanetConfig.flowerYOffset
+};
 
 // 简化纹理 - 移除噪声纹理，使用纯色材质让土壤更清晰
 // 不再使用噪声纹理，保持简洁的棕色表面
@@ -293,11 +304,11 @@ console.log('✓ 流星系统初始化完成');
 function createFlower(color = 0xffffff, position = { x: 0, y: 0, z: 0 }, style = 'littleprince') {
     const flowerGroup = new THREE.Group();
 
-    // 花茎（更粗更明显）
-    const stemHeight = style === 'littleprince' ? 2.0 : 2.5;
-    const stemGeometry = new THREE.CylinderGeometry(0.08, 0.12, stemHeight, 16);
+    // 花茎：更短更细，降低“枝干”存在感
+    const stemHeight = style === 'littleprince' ? 1.2 : 1.6;
+    const stemGeometry = new THREE.CylinderGeometry(0.05, 0.07, stemHeight, 12);
     const stemMaterial = new THREE.MeshStandardMaterial({
-        color: 0x2d5016, // 深绿色
+        color: 0x2f4f2f, // 深绿色
         roughness: 0.8,
         metalness: 0.0
     });
@@ -306,50 +317,30 @@ function createFlower(color = 0xffffff, position = { x: 0, y: 0, z: 0 }, style =
     stem.castShadow = true;
     flowerGroup.add(stem);
 
-    // 叶子（更大更明显）
-    if (style === 'littleprince') {
-        for (let i = 0; i < 3; i++) {
-            const leafGeometry = new THREE.ConeGeometry(0.15, 0.5, 8);
-            const leafMaterial = new THREE.MeshStandardMaterial({
-                color: 0x3d6b2a,
-                roughness: 0.8,
-                metalness: 0.0
-            });
-            const leaf = new THREE.Mesh(leafGeometry, leafMaterial);
-            const leafY = 0.3 + i * 0.6;
-            const leafAngle = (i / 3) * Math.PI * 2;
-            leaf.position.y = leafY;
-            leaf.position.x = Math.cos(leafAngle) * 0.18;
-            leaf.position.z = Math.sin(leafAngle) * 0.18;
-            leaf.rotation.z = Math.cos(leafAngle) * 0.3;
-            leaf.rotation.x = 0.2;
-            leaf.castShadow = true;
-            flowerGroup.add(leaf);
-        }
-    }
+    // 叶子：去除，避免地面杂乱
 
     // 花瓣组 - 更大更漂亮
     const petalGroup = new THREE.Group();
     const flowerHeight = stemHeight + 0.6;
 
-    // 彩虹渐变色数组（更鲜艳）
+    // 彩虹渐变色数组（柔和低饱和度）
     const rainbowColors = [
-        0xff6b9d, 0xff8c94, 0xffa07a, 0xffb347,
-        0xffd700, 0xffeb3b, 0x9b59b6, 0xe74c3c
+        0xf7c5cc, 0xfad7a0, 0xffe5b4, 0xf9e79f,
+        0xd5e8d4, 0xc9d9ff, 0xd7bde2, 0xf5cba7
     ];
 
     // 小王子风格：更大更明显的玫瑰
     if (style === 'littleprince') {
         // 主花苞：更大的金黄色球体
-        const flowerGeometry = new THREE.SphereGeometry(0.6, 32, 32);
-        flowerGeometry.scale(1.0, 1.3, 1.0);
+        const flowerGeometry = new THREE.SphereGeometry(0.55, 32, 32);
+        flowerGeometry.scale(1.0, 1.2, 1.0);
 
         const flowerMaterial = new THREE.MeshStandardMaterial({
-            color: 0xffd700,
+            color: 0xf8d27b,
             roughness: 0.5,
-            metalness: 0.1,
-            emissive: 0xffd700,
-            emissiveIntensity: 0.2
+            metalness: 0.05,
+            emissive: 0xf9e2ae,
+            emissiveIntensity: 0.25
         });
 
         const flowerBud = new THREE.Mesh(flowerGeometry, flowerMaterial);
@@ -359,17 +350,17 @@ function createFlower(color = 0xffffff, position = { x: 0, y: 0, z: 0 }, style =
         petalGroup.add(flowerBud);
 
         // 更大更明显的花瓣
-        const petalColor = new THREE.Color(0xffeb3b);
+        const petalColor = new THREE.Color(0xfceabb); // 柔和黄
         for (let i = 0; i < 6; i++) {
             const angle = (i / 6) * Math.PI * 2;
-            const petalGeometry = new THREE.CircleGeometry(0.45, 20);
+            const petalGeometry = new THREE.CircleGeometry(0.55, 22);
             const petalMaterial = new THREE.MeshStandardMaterial({
                 color: petalColor,
                 side: THREE.DoubleSide,
-                roughness: 0.6,
-                metalness: 0.0,
+                roughness: 0.55,
+                metalness: 0.05,
                 transparent: true,
-                opacity: 0.9
+                opacity: 0.92
             });
             const petal = new THREE.Mesh(petalGeometry, petalMaterial);
 
@@ -379,7 +370,7 @@ function createFlower(color = 0xffffff, position = { x: 0, y: 0, z: 0 }, style =
             petal.position.y = flowerHeight - 0.15;
 
             petal.lookAt(0, flowerHeight, 0);
-            petal.rotateX(-Math.PI / 3);
+            petal.rotateX(-Math.PI / 3.3);
 
             petal.castShadow = true;
             petal.receiveShadow = true;
@@ -392,12 +383,12 @@ function createFlower(color = 0xffffff, position = { x: 0, y: 0, z: 0 }, style =
             const angle = (i / petalCount) * Math.PI * 2;
             const petalColor = new THREE.Color(rainbowColors[i % rainbowColors.length]);
 
-            const petalGeometry = new THREE.CircleGeometry(0.5, 20);
+            const petalGeometry = new THREE.CircleGeometry(0.52, 22);
             const petalMaterial = new THREE.MeshStandardMaterial({
                 color: petalColor,
                 side: THREE.DoubleSide,
-                roughness: 0.6,
-                metalness: 0.0,
+                roughness: 0.55,
+                metalness: 0.05,
                 transparent: true,
                 opacity: 0.9
             });
@@ -433,44 +424,16 @@ function createFlower(color = 0xffffff, position = { x: 0, y: 0, z: 0 }, style =
 
 
     flowerGroup.add(petalGroup);
-    // 花朵位置：计算在小行星表面的位置
-    // 使用全局 planetRadius 和 planetScaleY
-    const planetCenterY = -24; // 与星球位置一致 (planet.position.y)
-    const planetCenterZ = 0;
 
-    // 计算在小行星表面的位置（球面坐标）
-    const distanceFromCenter = Math.sqrt(position.x * position.x + (position.z - planetCenterZ) * (position.z - planetCenterZ));
-    const angle = Math.atan2(position.z - planetCenterZ, position.x);
-
-    // 如果距离太远，限制在行星表面
-    const maxDistance = planetRadius * 0.9; // 限制在行星表面90%范围内
-    const clampedDistance = Math.min(distanceFromCenter, maxDistance);
-
-    // 计算在小行星表面的y位置（椭球面）
-    const surfaceX = Math.cos(angle) * clampedDistance;
-    const surfaceZ = Math.sin(angle) * clampedDistance;
-
-    // 对于扁平的椭球，直接使用最大高度（顶部）
-    // surfaceY = planetRadius * planetScaleY 是椭球的最大高度
-    let surfaceY = Math.sqrt(Math.max(0, planetRadius * planetRadius - clampedDistance * clampedDistance)) * planetScaleY;
-
-    // 确保花朵在可见的顶部（对于非常扁平的星球，所有花朵都应该在顶部）
-    // 当 planetScaleY 很小时（如0.1），所有花朵都放在最高点
-    if (planetScaleY < 0.3) {
-        surfaceY = planetRadius * planetScaleY; // 直接使用最大高度
-    } else if (surfaceY < planetRadius * planetScaleY * 0.3) {
-        surfaceY = planetRadius * planetScaleY * 0.5; // 强制放在上半部分
-    }
-
-    // 花朵从小行星表面生长
-    flowerGroup.position.set(surfaceX, planetCenterY + surfaceY, surfaceZ);
+    // 统一使用工具函数计算花朵在星球表面的位置与法线
+    const placement = calculateSurfacePlacement(position, planetConfig);
+    flowerGroup.position.set(placement.position.x, placement.position.y, placement.position.z);
 
     // 调试：打印花朵位置
-    console.log(`花朵位置: x=${surfaceX.toFixed(2)}, y=${(planetCenterY + surfaceY).toFixed(2)}, z=${surfaceZ.toFixed(2)}, surfaceY=${surfaceY.toFixed(2)}`);
-
+    console.log(`花朵位置: x=${placement.position.x.toFixed(2)}, y=${placement.position.y.toFixed(2)}, z=${placement.position.z.toFixed(2)}, surfaceY=${placement.surfaceY.toFixed(2)}`);
 
     // 让花朵垂直于小行星表面（朝向法线方向）
-    const normal = new THREE.Vector3(surfaceX, surfaceY, surfaceZ).normalize();
+    const normal = new THREE.Vector3(placement.normal.x, placement.normal.y, placement.normal.z);
     flowerGroup.lookAt(
         flowerGroup.position.x + normal.x,
         flowerGroup.position.y + normal.y,
@@ -2188,34 +2151,13 @@ function animate() {
                 // 确保花朵可见
                 flower.group.visible = true;
 
-                // 更新花朵在小行星表面的位置
+                // 更新花朵在小行星表面的位置（与创建时一致的坐标系）
                 if (flower.basePosition) {
-                    // 使用全局 planetRadius (已在第102行声明)
-                    const planetCenterY = -6; // 与星球位置一致
-                    const planetCenterZ = 0;
-
-                    const distanceFromCenter = Math.sqrt(
-                        flower.basePosition.x * flower.basePosition.x +
-                        (flower.basePosition.z - planetCenterZ) * (flower.basePosition.z - planetCenterZ)
-                    );
-                    const angle = Math.atan2(flower.basePosition.z - planetCenterZ, flower.basePosition.x);
-
-                    const maxDistance = planetRadius * 0.9;
-                    const clampedDistance = Math.min(distanceFromCenter, maxDistance);
-
-                    const surfaceX = Math.cos(angle) * clampedDistance;
-                    const surfaceZ = Math.sin(angle) * clampedDistance;
-                    let surfaceY = Math.sqrt(Math.max(0, planetRadius * planetRadius - clampedDistance * clampedDistance));
-
-                    // 确保花朵只在小行星的上半部分
-                    if (surfaceY < planetRadius * 0.3) {
-                        surfaceY = planetRadius * 0.5;
-                    }
-
-                    flower.group.position.set(surfaceX, planetCenterY + surfaceY, surfaceZ);
+                    const placement = calculateSurfacePlacement(flower.basePosition, planetConfig);
+                    flower.group.position.set(placement.position.x, placement.position.y, placement.position.z);
 
                     // 让花朵垂直于小行星表面
-                    const normal = new THREE.Vector3(surfaceX, surfaceY, surfaceZ).normalize();
+                    const normal = new THREE.Vector3(placement.normal.x, placement.normal.y, placement.normal.z);
                     flower.group.lookAt(
                         flower.group.position.x + normal.x,
                         flower.group.position.y + normal.y,
@@ -2242,32 +2184,11 @@ function animate() {
 
             // 更新主花朵在小行星表面的位置
             if (mainFlower.basePosition) {
-                // 使用全局 planetRadius (已在第102行声明)
-                const planetCenterY = -6; // 与星球位置一致
-                const planetCenterZ = 0;
-
-                const distanceFromCenter = Math.sqrt(
-                    mainFlower.basePosition.x * mainFlower.basePosition.x +
-                    (mainFlower.basePosition.z - planetCenterZ) * (mainFlower.basePosition.z - planetCenterZ)
-                );
-                const angle = Math.atan2(mainFlower.basePosition.z - planetCenterZ, mainFlower.basePosition.x);
-
-                const maxDistance = planetRadius * 0.9;
-                const clampedDistance = Math.min(distanceFromCenter, maxDistance);
-
-                const surfaceX = Math.cos(angle) * clampedDistance;
-                const surfaceZ = Math.sin(angle) * clampedDistance;
-                let surfaceY = Math.sqrt(Math.max(0, planetRadius * planetRadius - clampedDistance * clampedDistance));
-
-                // 确保花朵只在小行星的上半部分
-                if (surfaceY < planetRadius * 0.3) {
-                    surfaceY = planetRadius * 0.5;
-                }
-
-                mainFlower.group.position.set(surfaceX, planetCenterY + surfaceY, surfaceZ);
+                const placement = calculateSurfacePlacement(mainFlower.basePosition, planetConfig);
+                mainFlower.group.position.set(placement.position.x, placement.position.y, placement.position.z);
 
                 // 让花朵垂直于小行星表面
-                const normal = new THREE.Vector3(surfaceX, surfaceY, surfaceZ).normalize();
+                const normal = new THREE.Vector3(placement.normal.x, placement.normal.y, placement.normal.z);
                 mainFlower.group.lookAt(
                     mainFlower.group.position.x + normal.x,
                     mainFlower.group.position.y + normal.y,
@@ -2313,27 +2234,11 @@ function animate() {
 
                 // 更新花朵在小行星表面的位置
                 if (flower.basePosition) {
-                    // 使用全局 planetRadius (已在第102行声明)
-                    const planetCenterY = -6; // 与星球位置一致
-                    const planetCenterZ = 0;
-
-                    const distanceFromCenter = Math.sqrt(
-                        flower.basePosition.x * flower.basePosition.x +
-                        (flower.basePosition.z - planetCenterZ) * (flower.basePosition.z - planetCenterZ)
-                    );
-                    const angle = Math.atan2(flower.basePosition.z - planetCenterZ, flower.basePosition.x);
-
-                    const maxDistance = planetRadius * 0.9;
-                    const clampedDistance = Math.min(distanceFromCenter, maxDistance);
-
-                    const surfaceX = Math.cos(angle) * clampedDistance;
-                    const surfaceZ = Math.sin(angle) * clampedDistance;
-                    const surfaceY = Math.sqrt(Math.max(0, planetRadius * planetRadius - clampedDistance * clampedDistance));
-
-                    flower.group.position.set(surfaceX, planetCenterY + surfaceY, surfaceZ);
+                    const placement = calculateSurfacePlacement(flower.basePosition, planetConfig);
+                    flower.group.position.set(placement.position.x, placement.position.y, placement.position.z);
 
                     // 让花朵垂直于小行星表面
-                    const normal = new THREE.Vector3(surfaceX, surfaceY, surfaceZ).normalize();
+                    const normal = new THREE.Vector3(placement.normal.x, placement.normal.y, placement.normal.z);
                     flower.group.lookAt(
                         flower.group.position.x + normal.x,
                         flower.group.position.y + normal.y,
