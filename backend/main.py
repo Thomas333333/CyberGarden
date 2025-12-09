@@ -33,6 +33,7 @@ from agents.visual_designer import VisualDesignerAgent
 from agents.butterfly_controller import ButterflyControllerAgent
 from agents.environment_generator import EnvironmentGeneratorAgent
 from agents.coordinator import CoordinatorAgent
+import ast
 
 # --- FastAPI App ---
 app = FastAPI()
@@ -47,6 +48,101 @@ app.add_middleware(
 )
 
 # --- AgentScope 初始化 ---
+def extract_json_robust(text: str) -> dict:
+    """
+    终极 JSON 提取器 v3 (自动拆包版)：
+    1. 优先提取 Markdown 代码块
+    2. 递归寻找最外层 {} 或 []
+    3. 尝试多种解析方式 (json, ast)
+    4. [新增] 自动拆包：如果解析结果是 DashScope/AgentScope 的包装器，自动提取内部 text 再解析
+    """
+    if not text:
+        raise ValueError("Empty text provided")
+
+    # --- 内部函数：基础解析逻辑 ---
+    def _parse_candidate(candidate_text):
+        # 1. 尝试标准 JSON
+        try:
+            return json.loads(candidate_text)
+        except:
+            pass
+        # 2. 尝试清洗换行符后 JSON
+        try:
+            cleaned = candidate_text.replace("\\n", "\n").replace("\\t", "\t")
+            return json.loads(cleaned)
+        except:
+            pass
+        # 3. 尝试 Python AST (处理单引号)
+        try:
+            return ast.literal_eval(candidate_text)
+        except:
+            pass
+        # 4. 尝试暴力修复
+        try:
+            fixed = candidate_text.replace("'", '"')
+            fixed = fixed.replace("None", "null").replace("True", "true").replace("False", "false")
+            return json.loads(fixed)
+        except:
+            pass
+        return None
+
+    # --- 主流程 ---
+    
+    # 1. 预处理
+    text = re.sub(r'<think>[\s\S]*?</think>', '', text)
+    code_block = re.search(r'```(?:json)?\s*([\{\[][\s\S]*?[\]\}])\s*```', text, re.IGNORECASE)
+    if code_block:
+        text = code_block.group(1)
+
+    # 2. 寻找最外层的结构 ({...} 或 [...])
+    # 有时候 wrapper 是 list: [{'text': ...}]
+    start_brace = text.find('{')
+    start_bracket = text.find('[')
+    
+    start_idx = -1
+    end_idx = -1
+    
+    # 确定是找 { 还是找 [
+    if start_brace != -1 and (start_bracket == -1 or start_brace < start_bracket):
+        start_idx = start_brace
+        end_idx = text.rfind('}')
+    elif start_bracket != -1:
+        start_idx = start_bracket
+        end_idx = text.rfind(']')
+        
+    if start_idx == -1 or end_idx == -1:
+        # 如果找不到外层结构，尝试直接解析整个文本（可能是裸字符串）
+        candidate = text
+    else:
+        candidate = text[start_idx : end_idx + 1]
+
+    # 3. 执行初次解析
+    result = _parse_candidate(candidate)
+    
+    if result is None:
+        raise ValueError(f"Could not parse JSON. Content: {text[:50]}...")
+
+    # --- [关键修复] 递归拆包逻辑 ---
+    # 检查是否是 DashScope/AgentScope 的包装器结构
+    
+    # 情况 A: 列表包装 [{'type': 'text', 'text': '{...}'}]
+    if isinstance(result, list) and len(result) > 0:
+        item = result[0]
+        if isinstance(item, dict) and 'text' in item:
+            print("📦 Detected List Wrapper, unboxing...")
+            return extract_json_robust(item['text']) # 递归调用
+            
+    # 情况 B: 字典包装 {'type': 'text', 'text': '{...}'}
+    if isinstance(result, dict):
+        # 如果包含 'text' 且不包含我们需要的业务字段（比如 'analysis' 或 'size'），说明它可能只是个包装
+        # 这里做一个简单的判断：如果 'text' 的值看起来像 JSON 字符串（以 { 开头），就钻进去
+        if 'text' in result and isinstance(result['text'], str):
+            inner_text = result['text'].strip()
+            if inner_text.startswith('{') or inner_text.startswith('['):
+                print("📦 Detected Dict Wrapper, unboxing...")
+                return extract_json_robust(inner_text) # 递归调用
+
+    return result
 def init_agents():
     """初始化 AgentScope 和 agents"""
     try:
@@ -76,20 +172,36 @@ def init_agents():
                 print(f"Error creating DashScope model: {e}")
         
         # 创建 agents（如果 API key 不存在，使用 None，agent 会使用默认值）
+        primary_model = deepseek_model if deepseek_model else qwen_model
+        
+        if not primary_model:
+            print("❌ 错误: 没有可用的 AI 模型 (DeepSeek 和 DashScope Key 都缺失)")
+            return None
+
+        # 4. 创建 Agents
+        # Visual Agent (首选 DeepSeek)
+        visual_model = deepseek_model if deepseek_model else primary_model
         visual_agent = VisualDesignerAgent(
             name="VisualDesigner",
-            model=deepseek_model
-        ) if deepseek_model else None
+            model=visual_model
+        )
+        print(f"VisualAgent 创建成功 (使用: {visual_model.model_name if hasattr(visual_model, 'model_name') else 'Unknown'})")
         
+        # Butterfly Agent (首选 Qwen)
+        butterfly_model = qwen_model if qwen_model else primary_model
         butterfly_agent = ButterflyControllerAgent(
             name="ButterflyController",
-            model=qwen_model
-        ) if qwen_model else None
+            model=butterfly_model
+        )
+        print(f"ButterflyAgent 创建成功 (使用: {butterfly_model.model_name if hasattr(butterfly_model, 'model_name') else 'Unknown'})")
         
+        # Environment Agent (首选 DeepSeek)
+        env_model = deepseek_model if deepseek_model else primary_model
         env_agent = EnvironmentGeneratorAgent(
             name="EnvironmentGenerator",
-            model=deepseek_model
-        ) if deepseek_model else None
+            model=env_model
+        )
+        print(f"EnvironmentAgent 创建成功 (使用: {env_model.model_name if hasattr(env_model, 'model_name') else 'Unknown'})")
         
         # 创建协调者
         if visual_agent and butterfly_agent and env_agent:
@@ -193,47 +305,244 @@ async def transcribe_audio(audio_file_path: str) -> str:
         traceback.print_exc()
         raise
 
+import inspect
+import json
+import re
 async def generate_flower_params_from_text(text: str, coordinator_instance=None) -> dict:
-    """根据文本生成花朵参数（大小、形状、颜色等）"""
+    """
+    扁平版花朵参数生成：
+    - 模型返回一个扁平 JSON，无 parameters 嵌套
+    - 自动收集流式/非流式 chunk
+    - 自动解析 JSON（使用 extract_json_robust）
+    - 失败回退 simple 规则
+    """
+
+    print(f"--- 扁平版生成花朵参数: '{text}' ---")
+
     try:
-        # 如果没有 coordinator，使用简单的规则生成
-        if not coordinator_instance:
+        # 1. 没有 agent → fallback
+        if not coordinator_instance or not getattr(coordinator_instance, "visual_agent", None):
+            print("⚠️ Agent 未初始化，使用 simple 规则。")
             return generate_flower_params_simple(text)
-        
-        # 使用 LLM 生成更智能的参数
-        prompt = f"""Based on the following user response, generate flower parameters that reflect their emotions and feelings.
 
-User response: "{text}"
+        # ------------------------------------------------
+        # 2. Stage 1: Generate Parameters (JSON)
+        # ------------------------------------------------
+        prompt_stage1 = f"""
+You are a 'Digital Gardener'.
+User said: "{text}"
 
-Generate a JSON object with the following structure:
+Generate flower parameters in strict JSON format:
 {{
-    "size": 0.8-1.5,  // Flower size multiplier
-    "color": "#hexcolor",  // Main flower color (hex format)
-    "petalCount": 5-8,  // Number of petals
-    "brightness": 0.5-1.0,  // Overall brightness
-    "emotion": "happy/sad/excited/calm/etc"  // Detected emotion
+  "size": number(0.8-2.0),
+  "color": "#hex",
+  "petalCount": int(3-12),
+  "brightness": number(0.3-2.0),
+  "emotion": "emotion_tag",
+  "rotation_speed": number(0.0-0.05)
 }}
-
-Make the flower reflect the mood and content of the response. Be creative and meaningful."""
-
-        # 使用 coordinator 的 visual_agent 生成参数
-        if coordinator_instance.visual_agent:
-            response = coordinator_instance.visual_agent.model(
-                messages=[{"role": "user", "content": prompt}]
-            )
-            # 解析响应中的 JSON
-            import re
-            json_match = re.search(r'\{[^}]+\}', response.content, re.DOTALL)
-            if json_match:
-                params = json.loads(json_match.group())
-                return params
+Only output the JSON object. No markdown, no explanations.
+"""
+        print("🤖 Stage 1: Generating parameters...")
+        response1 = await coordinator_instance.visual_agent.model(
+            messages=[{"role": "user", "content": prompt_stage1}]
+        )
         
-        # 如果 LLM 失败，使用简单规则
-        return generate_flower_params_simple(text)
+        # Helper to collect text (improved for DashScope incremental output)
+        import inspect
+        import re
+        import json
+        import ast
+
+        # async def collect_text(resp):
+        #     """
+        #     智能流式收集器：自动识别 Delta(增量) 和 Accumulation(全量) 模式
+        #     """
+        #     full_text = ""
+        #     last_chunk_text = "" # 记录上一帧的纯文本内容，用于判断模式
+            
+        #     if inspect.isasyncgen(resp):
+        #         async for chunk in resp:
+        #             content = ""
+                    
+        #             # 1. 提取当前帧的文本内容
+        #             if isinstance(chunk, dict):
+        #                 content = chunk.get("text", "") or chunk.get("content", "")
+        #             elif hasattr(chunk, "text"): # DashScope response object
+        #                 content = chunk.text
+        #             elif hasattr(chunk, "content"): # OpenAI delta object
+        #                 content = chunk.content
+        #             else:
+        #                 content = str(chunk)
+                        
+        #             if not content:
+        #                 continue
+
+        #             content_str = str(content)
+
+        #             # 2. 智能判断模式
+        #             # 如果当前帧包含上一帧的内容（且长度更长），说明是全量更新（DashScope/Qwen模式）
+        #             # 我们取前10个字符做快速模糊匹配，避免开头有细微差别导致判断失败
+        #             check_len = min(len(last_chunk_text), 20)
+        #             is_accumulation = False
+                    
+        #             if check_len > 0 and content_str.startswith(last_chunk_text[:check_len]):
+        #                 is_accumulation = True
+        #             elif len(content_str) > len(last_chunk_text) and last_chunk_text in content_str:
+        #                 is_accumulation = True
+
+        #             # 3. 更新 full_text
+        #             if is_accumulation:
+        #                 # 全量模式：直接覆盖
+        #                 full_text = content_str
+        #             else:
+        #                 # 增量模式：追加 (OpenAI模式)
+        #                 # 注意：如果全量模式判断失败，可能会导致重复，这里加一个额外保险
+        #                 # 如果追加的内容和结尾重复，则不追加
+        #                 if not full_text.endswith(content_str):
+        #                     full_text += content_str
+                    
+        #             last_chunk_text = content_str # 更新上一帧记录
+                    
+        #     else:
+        #         # 非流式处理
+        #         if isinstance(resp, dict):
+        #             if "text" in resp: full_text = str(resp["text"])
+        #             elif "content" in resp: full_text = str(resp["content"])
+        #             else: full_text = str(resp)
+        #         elif hasattr(resp, "text") and resp.text: full_text = str(resp.text)
+        #         elif hasattr(resp, "content") and resp.content: full_text = str(resp.content)
+        #         else: full_text = str(resp)
+
+        #     # 4. 清理 DashScope 可能残留的 artifact
+        #     if "'type': 'text'" in full_text:
+        #         try:
+        #             # 尝试提取 Python 字典字符串形式的 text 字段
+        #             matches = re.findall(r"'text':\s*'([^']*)'", full_text)
+        #             if matches:
+        #                 # 取最长的一个，通常是最终结果
+        #                 full_text = max(matches, key=len)
+        #         except:
+        #             pass
+                    
+        #     return full_text
+
+        async def collect_text(resp):
+            """
+            collect_text V3 (安全版):
+            1. 移除了导致截断的危险正则清理逻辑。
+            2. 保留了智能的全量/增量识别。
+            """
+            full_text = ""
+            last_chunk_text = "" 
+            
+            if inspect.isasyncgen(resp):
+                async for chunk in resp:
+                    content = ""
+                    
+                    # 1. 提取当前帧的文本内容
+                    if isinstance(chunk, dict):
+                        content = chunk.get("text", "") or chunk.get("content", "")
+                    elif hasattr(chunk, "text"): 
+                        content = chunk.text
+                    elif hasattr(chunk, "content"): 
+                        content = chunk.content
+                    else:
+                        content = str(chunk)
+                        
+                    if not content:
+                        continue
+
+                    content_str = str(content)
+
+                    # 2. 智能判断模式 (全量 vs 增量)
+                    check_len = min(len(last_chunk_text), 20)
+                    is_accumulation = False
+                    
+                    # 只有当 current 比 full 长，或者 current 包含 full 的前缀时
+                    if check_len > 0 and content_str.startswith(last_chunk_text[:check_len]):
+                        is_accumulation = True
+                    elif len(content_str) > len(last_chunk_text) and last_chunk_text in content_str:
+                        is_accumulation = True
+
+                    # 3. 更新 full_text
+                    if is_accumulation:
+                        full_text = content_str
+                    else:
+                        # 增量模式：追加
+                        if not full_text.endswith(content_str):
+                            full_text += content_str
+                    
+                    last_chunk_text = content_str 
+                    
+            else:
+                # 非流式处理
+                if isinstance(resp, dict):
+                    if "text" in resp: full_text = str(resp["text"])
+                    elif "content" in resp: full_text = str(resp["content"])
+                    else: full_text = str(resp)
+                elif hasattr(resp, "text") and resp.text: full_text = str(resp.text)
+                elif hasattr(resp, "content") and resp.content: full_text = str(resp.content)
+                else: full_text = str(resp)
+
+            # 4. [已删除危险的正则清理]
+            # 这里的正则 '([^']*)' 会在遇到英文撇号(如 user's)时截断文本，
+            # extract_json_robust 中的 ast.literal_eval 已经足够处理 Python 风格的字典字符串。
+            
+            return full_text
+    
+        text1 = await collect_text(response1)
+        print(f"📦 Stage 1 Output: {text1}")
+        params = extract_json_robust(text1)
+        print("✅ Stage 1 JSON parsed:", params)
+
+        # ------------------------------------------------
+        # 3. Stage 2: Generate Analysis (Text)
+        # ------------------------------------------------
+        prompt_stage2 = f"""
+User said: "{text}"
+Flower parameters generated: {json.dumps(params)}
+
+Task:
+1. "analysis": Poetically interpret the user's input in ENGLISH (max 40 words).
+2. "connection": Explain why these parameters (color {params.get('color')}, emotion {params.get('emotion')}) were chosen in ENGLISH (max 30 words).
+
+Output strict JSON:
+{{
+  "analysis": "...",
+  "connection": "..."
+}}
+"""
+        print("🤖 Stage 2: Generating analysis...")
+        response2 = await coordinator_instance.visual_agent.model(
+            messages=[{"role": "user", "content": prompt_stage2}]
+        )
         
+        text2 = await collect_text(response2)
+        print(f"📦 Stage 2 Output: {text2}")
+        analysis_data = extract_json_robust(text2)
+        print("✅ Stage 2 JSON parsed:", analysis_data)
+
+        # ------------------------------------------------
+        # 4. Combine Results
+        # ------------------------------------------------
+        final_result = {**params, **analysis_data}
+        
+        # Validation
+        required_fields = ["analysis", "connection", "size", "color", "petalCount", "brightness", "emotion", "rotation_speed"]
+        for field in required_fields:
+            if field not in final_result:
+                print(f"⚠️ Missing field {field}, using simple fallback")
+                return generate_flower_params_simple(text)
+
+        final_result["input_text"] = text
+        return final_result
+
     except Exception as e:
-        print(f"Error generating flower params: {e}")
+        print(f"❌ Two-stage process failed: {e}")
+        print("🔁 Using simple fallback")
         return generate_flower_params_simple(text)
+
 
 def generate_flower_params_simple(text: str) -> dict:
     """简单的基于关键词的花朵参数生成（备用方案）"""
@@ -274,11 +583,15 @@ def generate_flower_params_simple(text: str) -> dict:
     color = color_map.get(emotion, "#FFD700")
     
     return {
+        "input_text": text,
+        "analysis": f"Detected emotion: {emotion}.",
+        "connection": f"Generated a {color} flower to represent your {emotion} mood.",
         "size": size,
         "color": color,
         "petalCount": 6,
         "brightness": 0.8 if emotion in ["happy", "excited", "love"] else 0.6,
-        "emotion": emotion
+        "emotion": emotion,
+        "rotation_speed": 0.02
     }
 
 # --- API 路由 ---

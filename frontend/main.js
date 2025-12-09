@@ -429,16 +429,15 @@ function createFlower(color = 0xffffff, position = { x: 0, y: 0, z: 0 }, style =
     const placement = calculateSurfacePlacement(position, planetConfig);
     flowerGroup.position.set(placement.position.x, placement.position.y, placement.position.z);
 
-    // 调试：打印花朵位置
-    console.log(`花朵位置: x=${placement.position.x.toFixed(2)}, y=${placement.position.y.toFixed(2)}, z=${placement.position.z.toFixed(2)}, surfaceY=${placement.surfaceY.toFixed(2)}`);
+    // 关键修正：让花朵沿着法线方向生长（垂直于星球表面）
+    // 使用 Quaternion 将 Y 轴 (0,1,0) 对齐到法线方向
+    const normal = new THREE.Vector3(placement.normal.x, placement.normal.y, placement.normal.z).normalize();
+    const targetQuaternion = new THREE.Quaternion();
+    targetQuaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+    flowerGroup.quaternion.copy(targetQuaternion);
 
-    // 让花朵垂直于小行星表面（朝向法线方向）
-    const normal = new THREE.Vector3(placement.normal.x, placement.normal.y, placement.normal.z);
-    flowerGroup.lookAt(
-        flowerGroup.position.x + normal.x,
-        flowerGroup.position.y + normal.y,
-        flowerGroup.position.z + normal.z
-    );
+    // 调试：打印花朵位置
+    console.log(`花朵位置: x=${placement.position.x.toFixed(2)}, y=${placement.position.y.toFixed(2)}, z=${placement.position.z.toFixed(2)}`);
 
     // 确保花朵始终可见
     flowerGroup.visible = true;
@@ -466,17 +465,46 @@ const flowers = [];
 // 花朵位置（x和z坐标，y会在创建时根据小行星表面计算）
 // 位置在小行星表面，分布在一个圆形区域内
 // 使用全局 planetRadius (已在第102行声明)
+// const flowerPositions = [
+//     { x: -3, z: -2 },
+//     { x: -2, z: -3 },
+//     { x: 0, z: -3.5 },
+//     { x: 2, z: -3 },
+//     { x: 3, z: -2 },
+//     { x: -2.5, z: 0 },
+//     { x: 0, z: 0.5 },
+//     { x: 2.5, z: 0 },
+//     { x: -3.5, z: -1 },
+//     { x: 3.5, z: -1 },
+//     { x: 0, z: -1 }, // 中心花朵 - 小王子玫瑰（在小行星顶部）
+// ];
+
+// // 花朵风格配置（移除cyberpunk，只保留小王子和彩虹）
+// const flowerStyles = [
+//     'rainbow',      // 彩虹渐变
+//     'littleprince', // 小王子玫瑰
+//     'rainbow',      // 彩虹渐变
+//     'littleprince', // 小王子玫瑰
+//     'rainbow',      // 彩虹渐变
+//     'littleprince', // 小王子玫瑰
+//     'rainbow',      // 彩虹渐变
+//     'littleprince', // 小王子玫瑰
+//     'rainbow',      // 彩虹渐变
+//     'littleprince', // 小王子玫瑰
+//     'littleprince'  // 中心花朵：小王子玫瑰
+// ];
+
 const flowerPositions = [
-    { x: -3, z: -2 },
-    { x: -2, z: -3 },
-    { x: 0, z: -3.5 },
-    { x: 2, z: -3 },
-    { x: 3, z: -2 },
-    { x: -2.5, z: 0 },
-    { x: 0, z: 0.5 },
-    { x: 2.5, z: 0 },
-    { x: -3.5, z: -1 },
-    { x: 3.5, z: -1 },
+    { x: -8, z: -5 },
+    { x: -5, z: -8 },
+    { x: 0, z: -9 },
+    { x: 5, z: -8 },
+    { x: 8, z: -5 },
+    { x: -7, z: 0 },
+    { x: 0, z: 3 },
+    { x: 7, z: 0 },
+    { x: -9, z: -2 },
+    { x: 9, z: -2 },
     { x: 0, z: -1 }, // 中心花朵 - 小王子玫瑰（在小行星顶部）
 ];
 
@@ -526,9 +554,21 @@ function startVoiceInteractionPhase() {
     flowerParamsFixed = false;
 
     // 显示语音交互界面
+    // 显示语音交互界面
     const voiceInteraction = document.getElementById('voice-interaction');
     if (voiceInteraction) {
         voiceInteraction.classList.add('active');
+        voiceInteraction.style.display = 'block'; // 强制显示
+        console.log('Voice interaction UI activated');
+
+        // 重置分析显示
+        const analysisDiv = document.getElementById('voice-analysis');
+        if (analysisDiv) {
+            analysisDiv.style.display = 'none';
+            analysisDiv.innerHTML = '';
+        }
+    } else {
+        console.error('Voice interaction UI element not found!');
     }
 
     // 隐藏其他花朵，只显示主花朵（中心花朵）
@@ -735,16 +775,76 @@ async function processAudio(audioBlob) {
             throw new Error(paramsResult.error || 'Failed to generate flower params');
         }
 
+        const data = paramsResult.params;
+
+        // 处理新旧格式兼容
+        // const flowerParams = data.parameters || data;
+        // const analysis = data.analysis;
+        // const connection = data.connection;
+
+        // console.log('花朵参数:', flowerParams);
+        // console.log('分析:', analysis);
+        // console.log('关联:', connection);
+
+        // // 显示分析结果
+        // const analysisDiv = document.getElementById('voice-analysis');
+        // if (analysisDiv && (analysis || connection)) {
+        //     analysisDiv.style.display = 'block';
+        //     let htmlContent = '';
+        //     if (analysis) htmlContent += `<div style="margin-bottom: 10px;"><strong style="color: #b8d4e3;">分析:</strong> ${analysis}</div>`;
+        //     if (connection) htmlContent += `<div><strong style="color: #b8d4e3;">设计理念:</strong> ${connection}</div>`;
+        //     analysisDiv.innerHTML = htmlContent;
+        // }
+
         const flowerParams = paramsResult.params;
-        console.log('花朵参数:', flowerParams);
+        console.log('后端完整返回:', flowerParams);
+
+        // A. 提取文本内容
+        const inputText = flowerParams.input_text || "";
+        const analysisContent = flowerParams.analysis || "暂无分析内容";
+        const connectionContent = flowerParams.connection || "暂无关联内容";
+
+        // B. 获取 HTML 元素 (对应 HTML 中的 ID)
+        const analysisEl = document.getElementById('analysis');
+        const connectionEl = document.getElementById('connection');
+        const statusEl = document.getElementById('status');
+
+        // C. 更新 "分析" 部分
+        if (analysisEl) {
+            let html = "";
+            if (inputText) {
+                html += `<div style="margin-bottom: 8px; font-style: italic; color: #a0c0ff;">🗣️ You said: "${inputText}"</div>`;
+            }
+            html += `<div>${analysisContent}</div>`;
+
+            analysisEl.innerHTML = html;
+            // 简单的淡入动效
+            analysisEl.style.opacity = '0.5';
+            setTimeout(() => analysisEl.style.opacity = '1', 200);
+        }
+
+        // D. 更新 "关联" 部分
+        if (connectionEl) {
+            connectionEl.textContent = connectionContent;
+            // 简单的淡入动效
+            connectionEl.style.opacity = '0.5';
+            setTimeout(() => connectionEl.style.opacity = '1', 400);
+        }
+
+        // E. 更新顶部状态文字
+        if (statusEl) {
+            statusEl.textContent = "✨ 生成完毕";
+            statusEl.style.color = "#90c695"; // 变成绿色
+        }
 
         // 应用花朵参数到主花朵
         applyFlowerParams(mainFlower, flowerParams);
 
         // 完成语音交互，进入手势交互阶段
+        // 延长展示时间以便用户阅读分析
         setTimeout(() => {
             completeVoiceInteraction();
-        }, 2000);
+        }, 6000);
 
     } catch (error) {
         console.error('处理音频时出错:', error);
@@ -1801,6 +1901,10 @@ window.addEventListener('load', async () => {
 
     // 初始化姿态检测
     await initPoseDetection();
+
+    // 启动语音交互阶段 (确保在 DOM 加载后)
+    console.log('Starting voice interaction phase...');
+    startVoiceInteractionPhase();
 });
 
 // --- WebSocket 消息处理函数 ---
@@ -1891,62 +1995,62 @@ function handleWebSocketMessage(event) {
             targetColor.setHex(emotionColorHex);
         }
 
-        // --- 更新响度显示 ---
-        const loudnessPercent = Math.round(data.loudness * 100);
-        loudnessValue.textContent = `${loudnessPercent}%`;
-        loudnessBar.style.width = `${loudnessPercent}%`;
+        // // --- 更新响度显示 ---
+        // const loudnessPercent = Math.round(data.loudness * 100);
+        // loudnessValue.textContent = `${loudnessPercent}%`;
+        // loudnessBar.style.width = `${loudnessPercent}%`;
 
-        // 根据响度影响所有花朵
-        const baseScale = map(data.loudness, 0, 0.5, 0.9, 1.3);
-        targetScale = baseScale;
-        const scalePercent = Math.round((baseScale - 0.9) / (1.3 - 0.9) * 100);
+        // // 根据响度影响所有花朵
+        // const baseScale = map(data.loudness, 0, 0.5, 0.9, 1.3);
+        // targetScale = baseScale;
+        // const scalePercent = Math.round((baseScale - 0.9) / (1.3 - 0.9) * 100);
 
-        if (loudnessPercent < 20) {
-            loudnessEffect.textContent = `→ 花朵大小: ${scalePercent}% (安静，花朵较小)`;
-        } else if (loudnessPercent < 50) {
-            loudnessEffect.textContent = `→ 花朵大小: ${scalePercent}% (中等，正常大小)`;
-        } else if (loudnessPercent < 80) {
-            loudnessEffect.textContent = `→ 花朵大小: ${scalePercent}% (较大，花朵放大)`;
-        } else {
-            loudnessEffect.textContent = `→ 花朵大小: ${scalePercent}% (很大，花朵显著放大)`;
-        }
+        // if (loudnessPercent < 20) {
+        //     loudnessEffect.textContent = `→ 花朵大小: ${scalePercent}% (安静，花朵较小)`;
+        // } else if (loudnessPercent < 50) {
+        //     loudnessEffect.textContent = `→ 花朵大小: ${scalePercent}% (中等，正常大小)`;
+        // } else if (loudnessPercent < 80) {
+        //     loudnessEffect.textContent = `→ 花朵大小: ${scalePercent}% (较大，花朵放大)`;
+        // } else {
+        //     loudnessEffect.textContent = `→ 花朵大小: ${scalePercent}% (很大，花朵显著放大)`;
+        // }
 
-        // 根据响度创建涟漪效果
-        flowers.forEach((flower, index) => {
-            if (flower !== mainFlower) {
-                const distance = Math.sqrt(
-                    Math.pow(flower.group.position.x, 2) +
-                    Math.pow(flower.group.position.z, 2)
-                );
-                const rippleEffect = Math.sin(distance * 1.5 - Date.now() * 0.005) * 0.1 + 1;
-                flower.targetScale = baseScale * rippleEffect;
-            }
-        });
+        // // 根据响度创建涟漪效果
+        // flowers.forEach((flower, index) => {
+        //     if (flower !== mainFlower) {
+        //         const distance = Math.sqrt(
+        //             Math.pow(flower.group.position.x, 2) +
+        //             Math.pow(flower.group.position.z, 2)
+        //         );
+        //         const rippleEffect = Math.sin(distance * 1.5 - Date.now() * 0.005) * 0.1 + 1;
+        //         flower.targetScale = baseScale * rippleEffect;
+        //     }
+        // });
 
-        // --- 更新音高显示 ---
-        const pitch = Math.round(data.pitch);
-        pitchValue.textContent = `${pitch} Hz`;
-        const pitchNormalized = (data.pitch - 50) / 350;
-        const pitchPercent = Math.round(pitchNormalized * 100);
-        pitchBar.style.width = `${pitchPercent}%`;
-        const clampedPitch = Math.max(50, Math.min(400, data.pitch));
+        // // --- 更新音高显示 ---
+        // const pitch = Math.round(data.pitch);
+        // pitchValue.textContent = `${pitch} Hz`;
+        // const pitchNormalized = (data.pitch - 50) / 350;
+        // const pitchPercent = Math.round(pitchNormalized * 100);
+        // pitchBar.style.width = `${pitchPercent}%`;
+        // const clampedPitch = Math.max(50, Math.min(400, data.pitch));
 
-        // 映射音高到旋转
-        targetRotation = map(clampedPitch, 50, 400, -0.25, 0.25);
-        const rotationDeg = Math.round(targetRotation * 180 / Math.PI);
+        // // 映射音高到旋转
+        // targetRotation = map(clampedPitch, 50, 400, -0.25, 0.25);
+        // const rotationDeg = Math.round(targetRotation * 180 / Math.PI);
 
-        if (pitch < 150) {
-            pitchEffect.textContent = `→ 花朵旋转: ${rotationDeg}° (低音，向左倾斜)`;
-        } else if (pitch < 250) {
-            pitchEffect.textContent = `→ 花朵旋转: ${rotationDeg}° (中音，轻微倾斜)`;
-        } else if (pitch < 350) {
-            pitchEffect.textContent = `→ 花朵旋转: ${rotationDeg}° (高音，向右倾斜)`;
-        } else {
-            pitchEffect.textContent = `→ 花朵旋转: ${rotationDeg}° (很高音，明显倾斜)`;
-        }
+        // if (pitch < 150) {
+        //     pitchEffect.textContent = `→ 花朵旋转: ${rotationDeg}° (低音，向左倾斜)`;
+        // } else if (pitch < 250) {
+        //     pitchEffect.textContent = `→ 花朵旋转: ${rotationDeg}° (中音，轻微倾斜)`;
+        // } else if (pitch < 350) {
+        //     pitchEffect.textContent = `→ 花朵旋转: ${rotationDeg}° (高音，向右倾斜)`;
+        // } else {
+        //     pitchEffect.textContent = `→ 花朵旋转: ${rotationDeg}° (很高音，明显倾斜)`;
+        // }
 
-        // 根据音高影响主光源
-        planetLight.intensity = 0.8 + pitchNormalized * 0.4;
+        // // 根据音高影响主光源
+        // planetLight.intensity = 0.8 + pitchNormalized * 0.4;
 
         // --- 处理 AI 推荐数据 ---
         if (data.ai) {
@@ -2320,13 +2424,15 @@ function animate() {
                 scene.add(butterflyGroup);
             }
 
-            // 强制可见
-            butterflyGroup.visible = true;
-            butterflyGroup.traverse((child) => {
-                if (child.isMesh) {
-                    child.visible = true;
-                }
-            });
+            // 强制可见（仅在非语音交互阶段，或者明确要求显示时）
+            if (currentPhase !== 'voice_interaction') {
+                butterflyGroup.visible = true;
+                butterflyGroup.traverse((child) => {
+                    if (child.isMesh) {
+                        child.visible = true;
+                    }
+                });
+            }
 
             // 确保蝴蝶位置合理
             const butterflyPos = butterfly.getPosition();
@@ -2542,7 +2648,7 @@ window.addEventListener('resize', () => {
 });
 
 // 启动语音交互阶段
-startVoiceInteractionPhase();
+// startVoiceInteractionPhase(); // Moved to window.load
 
 // 检查场景内容
 console.log('✓ 场景初始化完成:', {

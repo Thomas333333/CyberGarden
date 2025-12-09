@@ -7,9 +7,9 @@ export const defaultPlanetConfig = {
     center: { x: 0, y: -24, z: 0 },
     maxDistanceFactor: 0.9,
     // 将花朵整体上移的偏移量，便于让花朵更靠近星球顶部
-    flowerYOffset: 12,
+    flowerYOffset: 0,
     // 为防止花朵被地表遮挡，额外向上浮动的高度
-    flowerFloat: 2
+    flowerFloat: 0.5
 };
 
 /**
@@ -48,12 +48,8 @@ export function calculateSurfacePlacement(basePosition, planetConfig = defaultPl
     // 原始球面高度（未压缩）
     let surfaceY = Math.sqrt(Math.max(0, radius * radius - clampedDistance * clampedDistance)) * scaleY;
 
-    // 与创建时一致的压扁逻辑：当 scaleY 很小，所有花朵放在顶部
-    if (scaleY < 0.3) {
-        surfaceY = radius * scaleY;
-    } else if (surfaceY < radius * scaleY * 0.3) {
-        surfaceY = radius * scaleY * 0.5;
-    }
+    // 移除人工压扁逻辑，让花朵自然贴合表面
+    // if (scaleY < 0.3) { ... }
 
     const normalVector = {
         x: surfaceX - center.x,
