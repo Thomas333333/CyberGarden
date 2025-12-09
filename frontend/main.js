@@ -429,15 +429,16 @@ function createFlower(color = 0xffffff, position = { x: 0, y: 0, z: 0 }, style =
     const placement = calculateSurfacePlacement(position, planetConfig);
     flowerGroup.position.set(placement.position.x, placement.position.y, placement.position.z);
 
-    // 关键修正：让花朵沿着法线方向生长（垂直于星球表面）
-    // 使用 Quaternion 将 Y 轴 (0,1,0) 对齐到法线方向
-    const normal = new THREE.Vector3(placement.normal.x, placement.normal.y, placement.normal.z).normalize();
-    const targetQuaternion = new THREE.Quaternion();
-    targetQuaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
-    flowerGroup.quaternion.copy(targetQuaternion);
-
     // 调试：打印花朵位置
-    console.log(`花朵位置: x=${placement.position.x.toFixed(2)}, y=${placement.position.y.toFixed(2)}, z=${placement.position.z.toFixed(2)}`);
+    console.log(`花朵位置: x=${placement.position.x.toFixed(2)}, y=${placement.position.y.toFixed(2)}, z=${placement.position.z.toFixed(2)}, surfaceY=${placement.surfaceY.toFixed(2)}`);
+
+    // 让花朵垂直于小行星表面（朝向法线方向）
+    const normal = new THREE.Vector3(placement.normal.x, placement.normal.y, placement.normal.z);
+    flowerGroup.lookAt(
+        flowerGroup.position.x + normal.x,
+        flowerGroup.position.y + normal.y,
+        flowerGroup.position.z + normal.z
+    );
 
     // 确保花朵始终可见
     flowerGroup.visible = true;
@@ -500,12 +501,12 @@ const flowerPositions = [
     { x: 0, z: -9 },
     { x: 5, z: -8 },
     { x: 8, z: -5 },
-    { x: -7, z: 0 },
-    { x: 0, z: 3 },
-    { x: 7, z: 0 },
+    // { x: -7, z: 0 },
+    // { x: 0, z: 3 },
+    // { x: 7, z: 0 },
     { x: -9, z: -2 },
     { x: 9, z: -2 },
-    { x: 0, z: -1 }, // 中心花朵 - 小王子玫瑰（在小行星顶部）
+    { x: 0, z: -2 }, // 中心花朵 - 小王子玫瑰（在小行星顶部）
 ];
 
 // 花朵风格配置（移除cyberpunk，只保留小王子和彩虹）
@@ -515,9 +516,9 @@ const flowerStyles = [
     'rainbow',      // 彩虹渐变
     'littleprince', // 小王子玫瑰
     'rainbow',      // 彩虹渐变
-    'littleprince', // 小王子玫瑰
-    'rainbow',      // 彩虹渐变
-    'littleprince', // 小王子玫瑰
+    // 'littleprince', // 小王子玫瑰
+    // 'rainbow',      // 彩虹渐变
+    // 'littleprince', // 小王子玫瑰
     'rainbow',      // 彩虹渐变
     'littleprince', // 小王子玫瑰
     'littleprince'  // 中心花朵：小王子玫瑰
@@ -526,12 +527,43 @@ const flowerStyles = [
 flowerPositions.forEach((pos, index) => {
     const style = flowerStyles[index] || 'littleprince';
     const flower = createFlower(0xffffff, { x: pos.x, y: 0, z: pos.z }, style);
+
+    // Align flower to planet surface
+    // Calculate normal vector from planet center (0, -planetRadius, 0) to flower position
+    // Note: The planet is at y = -planetRadius (approx -12 based on visual)
+    // But here the flower positions are relative to the top of the planet?
+    // Let's look at `calculateSurfacePlacement` in planet.js or assume a simple spherical model.
+    // The current positions seem to be local offsets.
+    // Let's assume the planet center is roughly at (0, -12, 0) based on typical Three.js scenes or previous code.
+    // Actually, let's just use the position itself if we assume the planet center is the origin, 
+    // but the planet is likely shifted down.
+    // Let's try to orient them based on their x/z position relative to the center.
+
+    const planetCenter = new THREE.Vector3(0, -12, 0); // Approximate planet center
+    const flowerPos = new THREE.Vector3(pos.x, 0, pos.z); // Current flower position (y is adjusted later by physics/placement logic?)
+    // Wait, `createFlower` takes position.
+    // Let's just orient it based on the vector from (0, -10, 0) to (pos.x, 0, pos.z)
+
+    const up = new THREE.Vector3(0, 1, 0);
+    const targetVec = new THREE.Vector3(pos.x, 0, pos.z).normalize(); // Pointing out from center
+    // Better:
+    const origin = new THREE.Vector3(0, -10, 0); // Assumed center of curvature
+    const currentPos = new THREE.Vector3(pos.x, 0, pos.z);
+    const normal = new THREE.Vector3().subVectors(currentPos, origin).normalize();
+
+    flower.group.quaternion.setFromUnitVectors(up, normal);
+
     scene.add(flower.group);
+
+    // Check if this is the main flower (last one)
+    const isMainFlower = index === flowerPositions.length - 1;
+    const initialScale = isMainFlower ? 5.0 : 2.0; // Significantly larger for main flower
+
     flowers.push({
         ...flower,
-        targetScale: 2.0,  // 增大初始缩放
+        targetScale: initialScale,
         targetRotation: 0.0,
-        currentScale: 2.0,  // 增大初始缩放
+        currentScale: initialScale,
         currentRotation: 0.0,
         baseColor: 0xffffff,
         style: style,
@@ -578,6 +610,8 @@ function startVoiceInteractionPhase() {
                 // 主花朵可见
                 flower.group.visible = true;
                 flower.group.scale.set(0.5, 0.5, 0.5);
+                // flower.group.scale.set(4, 4, 4);
+
             } else {
                 // 其他花朵隐藏
                 flower.group.visible = false;
@@ -605,7 +639,9 @@ function completeVoiceInteraction() {
     const voiceInteraction = document.getElementById('voice-interaction');
     if (voiceInteraction) {
         voiceInteraction.classList.remove('active');
+        voiceInteraction.style.display = 'none';
     }
+
 
     // 固定花朵参数
     flowerParamsFixed = true;
@@ -801,8 +837,8 @@ async function processAudio(audioBlob) {
 
         // A. 提取文本内容
         const inputText = flowerParams.input_text || "";
-        const analysisContent = flowerParams.analysis || "暂无分析内容";
-        const connectionContent = flowerParams.connection || "暂无关联内容";
+        const analysisContent = flowerParams.analysis || "No analysis available";
+        const connectionContent = flowerParams.connection || "No connection available";
 
         // B. 获取 HTML 元素 (对应 HTML 中的 ID)
         const analysisEl = document.getElementById('analysis');
@@ -886,6 +922,13 @@ function applyFlowerParams(flower, params) {
     }
 
     console.log('花朵参数已应用:', { size, color: params.color, brightness });
+
+    // 关键修复：立即锁定参数，防止 WebSocket 实时数据覆盖颜色
+    flowerParamsFixed = true;
+
+    // 同步更新全局颜色状态，确保动画循环不会回退颜色
+    if (typeof targetColor !== 'undefined') targetColor.copy(color);
+    if (typeof currentColor !== 'undefined') currentColor.copy(color);
 }
 
 // 初始化语音交互按钮
@@ -1298,9 +1341,9 @@ function connectWebSocket() {
 }
 
 // 初始化连接
-console.log('正在连接到后端 WebSocket: ws://localhost:8002/ws/data');
+console.log('Connecting to backend WebSocket: ws://localhost:8002/ws/data');
 if (statusElement) {
-    statusElement.textContent = '连接中...';
+    statusElement.textContent = 'Connecting...';
     statusElement.style.color = '#b8d4e3';
 }
 connectWebSocket();
@@ -1310,22 +1353,22 @@ setInterval(() => {
     if (ws) {
         if (ws.readyState === WebSocket.OPEN) {
             // 连接正常
-            if (statusElement && statusElement.textContent.includes('连接中')) {
-                statusElement.textContent = '✓ 已连接到后端';
+            if (statusElement && statusElement.textContent.includes('Connecting')) {
+                statusElement.textContent = '✓ Connected';
                 statusElement.style.color = '#90c695';
             }
         } else if (ws.readyState === WebSocket.CLOSED && !isConnecting) {
             // 连接已关闭且不在重连中
-            console.warn('WebSocket 已断开，尝试重连...');
+            console.warn('WebSocket disconnected, reconnecting...');
             if (statusElement) {
-                statusElement.textContent = '✗ 连接断开 - 正在重连...';
+                statusElement.textContent = '✗ Disconnected - Reconnecting...';
                 statusElement.style.color = '#ff9a9e';
             }
             connectWebSocket();
         }
     } else {
         // WebSocket 不存在，尝试创建
-        console.warn('WebSocket 不存在，尝试创建...');
+        console.warn('WebSocket missing, creating...');
         connectWebSocket();
     }
 }, 5000);
@@ -1990,7 +2033,7 @@ function handleWebSocketMessage(event) {
         }
 
         // 获取情绪颜色（低饱和度）- 只在参数未固定时更新
-        if (!flowerParamsFixed || currentPhase === 'voice_interaction') {
+        if (!flowerParamsFixed) {
             const emotionColorHex = emotionColors[data.emotion] || emotionColors['neutral'];
             targetColor.setHex(emotionColorHex);
         }
@@ -2190,7 +2233,7 @@ function animate() {
 
 
     // 平滑颜色过渡（只在语音交互阶段或参数未固定时更新）
-    if (!flowerParamsFixed || currentPhase === 'voice_interaction') {
+    if (!flowerParamsFixed) {
         currentColor.lerp(targetColor, 0.04);
 
         // 更新主花朵颜色（平滑过渡）
@@ -2281,8 +2324,15 @@ function animate() {
     } else {
         // 交互阶段：正常更新
         // 更新主花朵
-        const targetScaleValue = Math.max(0.3, targetScale); // 确保最小scale
+
+        const targetScaleValue = Math.max(2, targetScale); // 确保最小scale
         const targetScaleVec = new THREE.Vector3(targetScaleValue, targetScaleValue, targetScaleValue);
+
+        // const baseSize = mainFlower.targetScale || 1.0; 
+        // const targetScaleValue = Math.max(0.3, targetScale * baseSize); 
+        // const targetScaleVec = new THREE.Vector3(targetScaleValue, targetScaleValue, targetScaleValue);
+
+
         if (mainFlower && mainFlower.group) {
             mainFlower.group.visible = true; // 确保始终可见
 
