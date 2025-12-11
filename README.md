@@ -1,153 +1,153 @@
 # Sonic Bloom - Cyber Garden 🌺
 
-一个基于实时情绪、音频分析和手势交互的沉浸式 3D 花园可视化项目。通过摄像头捕捉面部表情和手势，通过麦克风分析声音特征，实时生成一个日式风格的 3D 花朵花园。
+An immersive 3D garden visualization project based on real-time emotion, audio analysis, and gesture interaction. Through camera capture of facial expressions and gestures, and microphone analysis of audio features, it generates a Japanese-style 3D flower garden in real-time.
 
-## ✨ 特性
+## ✨ Features
 
-### 🗣️ 语音交互生成 (Phase 1)
-- **语音生成花朵**：对着麦克风说话，AI 会根据你的语音内容和情绪生成一朵独一无二的花朵。
-- **小王子风格**：默认生成风格独特的"小王子"星球花朵。
-- **实时转写**：集成语音转文字功能，理解你的意图。
+### 🗣️ Voice Interaction Generation (Phase 1)
+- **Voice-Generated Flowers**: Speak into the microphone, and AI will generate a unique flower based on your voice content and emotions.
+- **Little Prince Style**: Default generation style features unique "Little Prince" planet flowers.
+- **Real-time Transcription**: Integrated speech-to-text functionality to understand your intent.
 
-### 🦋 手势控制蝴蝶 (Phase 2)
-- **21点骨架追踪**：使用 MediaPipe Hands 实时追踪手部 21 个关键点。
-- **区域控制飞行**：
-  - **👆 UP**：手在屏幕上方 -> 蝴蝶向上飞
-  - **👇 DOWN**：手在屏幕下方 -> 蝴蝶向下飞
-  - **👈 LEFT**：手在屏幕左侧 -> 蝴蝶向左飞
-  - **👉 RIGHT**：手在屏幕右侧 -> 蝴蝶向右飞
-  - **✋ CENTER**：手在屏幕中央 -> 蝴蝶悬停
-- **👌 捏合互动**：识别拇指和食指的捏合手势，触发特殊互动（如吸引蝴蝶）。
-- **可视化反馈**：屏幕实时显示手部骨架和控制区域。
+### 🦋 Gesture-Controlled Butterfly (Phase 2)
+- **21-Point Skeleton Tracking**: Uses MediaPipe Hands to track 21 hand keypoints in real-time.
+- **Zone-Based Flight Control**:
+  - **👆 UP**: Hand in upper screen area -> Butterfly flies upward
+  - **👇 DOWN**: Hand in lower screen area -> Butterfly flies downward
+  - **👈 LEFT**: Hand in left screen area -> Butterfly flies left
+  - **👉 RIGHT**: Hand in right screen area -> Butterfly flies right
+  - **✋ CENTER**: Hand in center screen area -> Butterfly hovers
+- **👌 Pinch Interaction**: Recognizes thumb and index finger pinch gestures to trigger special interactions (e.g., attracting butterflies).
+- **Visual Feedback**: Real-time display of hand skeleton and control zones on screen.
 
-### 🎭 情绪识别
-- 使用 **DeepFace** 实时分析面部表情
-- 支持 7 种情绪：开心、悲伤、愤怒、惊讶、恐惧、厌恶、中性
-- 情绪稳定算法，避免快速跳变
-- 情绪映射到花朵颜色（日式低饱和度配色）
+### 🎭 Emotion Recognition
+- Uses **DeepFace** for real-time facial expression analysis
+- Supports 7 emotions: happy, sad, angry, surprised, fearful, disgusted, neutral
+- Emotion stabilization algorithm to avoid rapid fluctuations
+- Emotion mapping to flower colors (Japanese low-saturation color scheme)
 
-### 🔊 音频分析
-- **响度分析**：使用 librosa 计算音频 RMS，控制花朵大小
-- **音高分析**：使用 librosa.pyin 提取基频（F0），控制花朵旋转
-- 实时音频处理和平滑过渡
+### 🔊 Audio Analysis
+- **Loudness Analysis**: Uses librosa to calculate audio RMS, controlling flower size
+- **Pitch Analysis**: Uses librosa.pyin to extract fundamental frequency (F0), controlling flower rotation
+- Real-time audio processing and smooth transitions
 
-### 🤖 AI 智能系统（可选）
-- **AgentScope 多智能体系统**：
-  - **VisualDesignerAgent**：使用大模型智能推荐视觉参数（颜色、光照、粒子效果）
-  - **ButterflyControllerAgent**：AI 控制蝴蝶行为逻辑（飞行路径、互动模式）
-  - **EnvironmentGeneratorAgent**：动态生成环境效果（光照、雾效、氛围）
-  - **CoordinatorAgent**：协调所有智能体，整合结果
-- 支持 **DeepSeek** 和 **阿里云百炼平台** API
+### 🤖 AI Intelligent System (Optional)
+- **AgentScope Multi-Agent System**:
+  - **VisualDesignerAgent**: Uses large language models to intelligently recommend visual parameters (colors, lighting, particle effects)
+  - **ButterflyControllerAgent**: AI controls butterfly behavior logic (flight paths, interaction modes)
+  - **EnvironmentGeneratorAgent**: Dynamically generates environmental effects (lighting, fog, atmosphere)
+  - **CoordinatorAgent**: Coordinates all agents and integrates results
+- Supports **DeepSeek** and **Alibaba Cloud DashScope** APIs
 
-### 🎨 高级视觉效果
-- **Three.js** 3D 渲染引擎
-- **Post-processing 效果**：SSAO、Bloom、Film Grain
-- **GPU 加速粒子系统**：10,000+ 粒子
-- **自定义 Shader Material**：花瓣发光和脉动效果
-- 日式低饱和度配色方案
+### 🎨 Advanced Visual Effects
+- **Three.js** 3D rendering engine
+- **Post-processing Effects**: SSAO, Bloom, Film Grain
+- **GPU-Accelerated Particle System**: 10,000+ particles
+- **Custom Shader Material**: Petal glow and pulsation effects
+- Japanese low-saturation color scheme
 
-## 🏗️ 项目结构
+## 🏗️ Project Structure
 
 ```
 cyberFamer/
-├── backend/              # Python/FastAPI 后端
-│   ├── main.py          # 主应用文件（FastAPI + WebSocket）
-│   ├── agents/          # AI 智能体模块
+├── backend/              # Python/FastAPI Backend
+│   ├── main.py          # Main application file (FastAPI + WebSocket)
+│   ├── agents/          # AI agent modules
 │   └── ...
-├── frontend/            # JavaScript/Three.js 前端
-│   ├── index.html       # HTML 入口文件
-│   ├── main.js          # Three.js 场景和逻辑
-│   ├── ml/              # 机器学习模块
-│   │   ├── pose-detection.js    # MediaPipe Hands 封装
-│   │   └── gesture-recognizer.js # 手势识别逻辑
-│   ├── models/          # 3D 模型 (Butterfly)
-│   ├── ai/              # AI 系统
+├── frontend/            # JavaScript/Three.js Frontend
+│   ├── index.html       # HTML entry file
+│   ├── main.js          # Three.js scene and logic
+│   ├── ml/              # Machine learning modules
+│   │   ├── pose-detection.js    # MediaPipe Hands wrapper
+│   │   └── gesture-recognizer.js # Gesture recognition logic
+│   ├── models/          # 3D models (Butterfly)
+│   ├── ai/              # AI system
 │   └── ...
-└── README.md            # 项目文档
+└── README.md            # Project documentation
 ```
 
-## 🛠️ 技术栈
+## 🛠️ Tech Stack
 
-### 后端
+### Backend
 - **Python 3.12+**
-- **FastAPI** - Web 框架和 WebSocket 服务器
-- **DeepFace** - 面部情绪识别
-- **OpenCV** - 摄像头捕获
-- **librosa** - 音频分析
-- **AgentScope** - 多智能体框架
+- **FastAPI** - Web framework and WebSocket server
+- **DeepFace** - Facial emotion recognition
+- **OpenCV** - Camera capture
+- **librosa** - Audio analysis
+- **AgentScope** - Multi-agent framework
 
-### 前端
-- **Three.js** - 3D 渲染引擎
-- **TensorFlow.js** & **MediaPipe Hands** - 手势识别
-- **Post-processing** - 后处理效果
-- **WebSocket** - 实时数据通信
+### Frontend
+- **Three.js** - 3D rendering engine
+- **TensorFlow.js** & **MediaPipe Hands** - Gesture recognition
+- **Post-processing** - Post-processing effects
+- **WebSocket** - Real-time data communication
 
-## 📦 安装步骤
+## 📦 Installation
 
-### 前置要求
+### Prerequisites
 1. **Python 3.12+**
-2. **uv** (Python 包管理器)
-3. **portaudio** (音频库)
+2. **uv** (Python package manager)
+3. **portaudio** (Audio library)
 
-### 安装依赖
+### Install Dependencies
 ```bash
 cd cyberFamer/backend
 uv sync
 ```
 
-### 配置 API Keys（可选）
-复制 `.env.example` 为 `.env` 并填入 `DEEPSEEK_API_KEY` 或 `DASHSCOPE_API_KEY` 以启用 AI 功能。
+### Configure API Keys (Optional)
+Copy `.env.example` to `.env` and fill in `DEEPSEEK_API_KEY` or `DASHSCOPE_API_KEY` to enable AI features.
 
-## 🚀 运行步骤
+## 🚀 Running the Project
 
-### 1. 启动后端
+### 1. Start Backend
 ```bash
 cd backend
 uv run python main.py
 ```
 
-### 2. 启动前端
+### 2. Start Frontend
 ```bash
 cd frontend
 python -m http.server 8080
 ```
-访问 `http://localhost:8080`
+Visit `http://localhost:8080`
 
-## 🎮 交互指南
+## 🎮 Interaction Guide
 
-### 第一阶段：语音生成 (Voice Interaction)
-1.  点击屏幕上的 **"🎤 Start Recording"** 按钮。
-2.  对着麦克风说一句话（例如："今天天气真好"）。
-3.  再次点击按钮停止录音。
-4.  系统会分析你的语音和情绪，生成一朵专属的花朵。
+### Phase 1: Voice Generation (Voice Interaction)
+1. Click the **"🎤 Start Recording"** button on the screen.
+2. Speak into the microphone (e.g., "The weather is nice today").
+3. Click the button again to stop recording.
+4. The system will analyze your voice and emotions to generate a unique flower.
 
-### 第二阶段：手势控制 (Gesture Interaction)
-1.  花朵生成后，系统会自动切换到手势控制模式。
-2.  举起一只手，确保摄像头能看到你的手掌。
-3.  **控制蝴蝶飞行**：
-    *   手在**上方**区域 -> 蝴蝶向上飞
-    *   手在**下方**区域 -> 蝴蝶向下飞
-    *   手在**左侧**区域 -> 蝴蝶向左飞
-    *   手在**右侧**区域 -> 蝴蝶向右飞
-4.  **特殊互动**：
-    *   **捏合 (Pinch)**：拇指和食指捏合，触发特殊效果。
+### Phase 2: Gesture Control (Gesture Interaction)
+1. After the flower is generated, the system automatically switches to gesture control mode.
+2. Raise one hand, ensuring the camera can see your palm.
+3. **Control Butterfly Flight**:
+   * Hand in **upper** area -> Butterfly flies upward
+   * Hand in **lower** area -> Butterfly flies downward
+   * Hand in **left** area -> Butterfly flies left
+   * Hand in **right** area -> Butterfly flies right
+4. **Special Interactions**:
+   * **Pinch**: Thumb and index finger pinch to trigger special effects.
 
-## 📝 开发计划
+## 📝 Development Roadmap
 
-- [x] AI 智能体系统集成
-- [x] 语音交互生成花朵
-- [x] 21点手部骨架追踪
-- [x] 交互式蝴蝶系统 (区域控制)
-- [x] GPU 粒子系统
-- [x] 高级后处理效果
-- [ ] 添加多人模式支持
-- [ ] 增加更多花朵类型和样式
-- [ ] 移动端适配
+- [x] AI agent system integration
+- [x] Voice interaction flower generation
+- [x] 21-point hand skeleton tracking
+- [x] Interactive butterfly system (zone control)
+- [x] GPU particle system
+- [x] Advanced post-processing effects
+- [ ] Add multi-user mode support
+- [ ] Add more flower types and styles
+- [ ] Mobile device adaptation
 
-## 📄 许可证
+## 📄 License
 
-本项目为课程作业项目，仅供学习和研究使用。
+This project is a course assignment project, for learning and research purposes only.
 
 ---
 
-**享受你的 Cyber Garden 之旅！** 🌸✨
+**Enjoy your Cyber Garden journey!** 🌸✨
